@@ -19,6 +19,29 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-10-26 — Server rebooted for a kernel update; Mac lost local-network access
+
+**What happened:** `dev-server` rebooted itself at 11:56:41 for an automatic
+kernel update (5.15.0-198) after 74 days up. pm2 resurrected the saved
+process list: dashboard and 12 stock bots online, the four cron jobs
+(observer, backup, candle-collector, screen-stocks) stopped between runs as
+normal. Static IP, sshd and ufw unchanged. No bot restarts since.
+
+**Separate problem found while checking:** the Mac (`MiniLee`) could neither
+ping nor SSH to the server ("No route to host"), although this Claude session,
+an SSH connection from the same Mac accepted at 12:20:57, kept working and
+was the only established session. Zero new packets from the Mac reached the
+server's NIC. Cause was on the Mac: a macOS upgrade reset the per-app
+**Local Network** privacy permission for Terminal. Re-enabling it in System
+Settings → Privacy & Security → Local Network fixed SSH immediately. Nothing
+on the server was changed.
+
+**Lesson:** an established connection surviving while new ones fail points at
+a per-app or stateful filter on the client, not at the server. Check the
+client's permission settings before touching the server's firewall.
+
+---
+
 ## 2026-10-14 — Candidate Screens: stocks only
 
 **Asked:** remove crypto from the Candidate Screens panel, the one piece
