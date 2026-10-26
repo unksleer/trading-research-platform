@@ -54,3 +54,4 @@ data/*.sqlite-journal
 completed_trades_*.csv
 trades.csv
 trades_dry.csv
+.claude/
