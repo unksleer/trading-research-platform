@@ -1,0 +1,224 @@
+{
+  "embedder": "model2vec:minishlab/potion-base-8M",
+  "chunks": 236,
+  "questions": 20,
+  "recall_at_k": {
+    "keyword": {
+      "@1": 0.6,
+      "@3": 0.8,
+      "@5": 0.9,
+      "@8": 1.0,
+      "@10": 1.0
+    },
+    "vector": {
+      "@1": 0.25,
+      "@3": 0.45,
+      "@5": 0.7,
+      "@8": 0.8,
+      "@10": 0.8
+    },
+    "hybrid": {
+      "@1": 0.5,
+      "@3": 0.65,
+      "@5": 0.8,
+      "@8": 1.0,
+      "@10": 1.0
+    }
+  },
+  "first_relevant_rank": {
+    "keyword": {
+      "r01": 2,
+      "r02": 1,
+      "r03": 1,
+      "r04": 1,
+      "r05": 4,
+      "r06": 1,
+      "r07": 2,
+      "r08": 1,
+      "r09": 1,
+      "r10": 3,
+      "r11": 5,
+      "r12": 1,
+      "r13": 1,
+      "r14": 7,
+      "r15": 1,
+      "r16": 3,
+      "r17": 1,
+      "r18": 1,
+      "r19": 8,
+      "r20": 1
+    },
+    "vector": {
+      "r01": 4,
+      "r02": 4,
+      "r03": 1,
+      "r04": 1,
+      "r05": 3,
+      "r06": 6,
+      "r07": 2,
+      "r08": 4,
+      "r09": 1,
+      "r10": null,
+      "r11": 2,
+      "r12": null,
+      "r13": 4,
+      "r14": 8,
+      "r15": 1,
+      "r16": null,
+      "r17": 1,
+      "r18": 3,
+      "r19": 5,
+      "r20": null
+    },
+    "hybrid": {
+      "r01": 4,
+      "r02": 1,
+      "r03": 1,
+      "r04": 1,
+      "r05": 3,
+      "r06": 1,
+      "r07": 2,
+      "r08": 1,
+      "r09": 1,
+      "r10": 6,
+      "r11": 1,
+      "r12": 6,
+      "r13": 1,
+      "r14": 7,
+      "r15": 1,
+      "r16": 4,
+      "r17": 1,
+      "r18": 2,
+      "r19": 4,
+      "r20": 6
+    }
+  },
+  "misses_at_5": {
+    "keyword": [
+      {
+        "id": "r14",
+        "question": "How did the First Candle Rule paper run conclude?",
+        "first_relevant_rank": 7,
+        "top3": [
+          "experiments/2026-09-spy-first-candle-rule.json > 2026-09-spy-first-candle-rule",
+          "experiments/2026-09-spy-first-candle-rule-v2.json > 2026-09-spy-first-candle-rule-v2",
+          "ledger/SPY-FIRST_CANDLE_RULE > Paper trade ledger for SPY, strategy FIRST_CANDLE_RULE, venue Alpaca paper. 1 closed trades, 0 of them entered before 2026-09-04 and so outside the v4 registration window. Source file completed_trades_spy_fcr_paper.csv."
+        ]
+      },
+      {
+        "id": "r19",
+        "question": "What RSI oversold and overbought thresholds do the stock bots run?",
+        "first_relevant_rank": 8,
+        "top3": [
+          "strategies/rsi_mean_reversion.py > rsi_mean_reversion",
+          "README.md > Evaluate a different candidate filter > 7. Stock Bots (`add_stock.py`)",
+          "README.md > Approve one exact recommendation for a later paper-only learner run > \ud83d\udcca Dashboard > Bot signal states"
+        ]
+      }
+    ],
+    "vector": [
+      {
+        "id": "r06",
+        "question": "What will the observer never do?",
+        "first_relevant_rank": 6,
+        "top3": [
+          "OBSERVER.md > The observer, and the agent it is not yet > Phase 1 \u2014 observe only (live from 2026-09-30) > Where it reports",
+          "OBSERVER.md > The observer, and the agent it is not yet",
+          "OBSERVER.md > The observer, and the agent it is not yet > Phase 2 \u2014 act within a sealed registration (not built) > What \"act\" would mean"
+        ]
+      },
+      {
+        "id": "r10",
+        "question": "Why did SUI do so well compared with the other Donchian trades?",
+        "first_relevant_rank": null,
+        "top3": [
+          "DECISIONS.md > Decision log > 2026-10-10 \u2014 Why SUI \"did so well\": it didn't, particularly \u2014 and the ledger was mislabelling every crypto trade",
+          "DECISIONS.md > Decision log > 2026-10-10 \u2014 Why SUI \"did so well\": it didn't, particularly \u2014 and the ledger was mislabelling every crypto trade",
+          "DECISIONS.md > Decision log > 2026-09-30 \u2014 The cumulative P&L curve, per market"
+        ]
+      },
+      {
+        "id": "r12",
+        "question": "What are the standing rules of the decision log?",
+        "first_relevant_rank": null,
+        "top3": [
+          "DECISIONS.md > Decision log > 2026-08-31 \u2014 Build the measurement layer > Decisions",
+          "experiments/2026-09-spy-first-candle-rule.json > 2026-09-spy-first-candle-rule",
+          "DECISIONS.md > Decision log > 2026-09-01 \u2014 A discretionary exit may not close at a loss"
+        ]
+      },
+      {
+        "id": "r14",
+        "question": "How did the First Candle Rule paper run conclude?",
+        "first_relevant_rank": 8,
+        "top3": [
+          "strategies/first_candle_rule.py > first_candle_rule",
+          "experiments/2026-09-spy-first-candle-rule.json > 2026-09-spy-first-candle-rule",
+          "strategies/first_candle_rule.py > first_candle_rule"
+        ]
+      },
+      {
+        "id": "r16",
+        "question": "Which JNJ trade hit the stop loss and what did it lose?",
+        "first_relevant_rank": null,
+        "top3": [
+          "experiments/2026-09-stocks-mean-reversion-v2.json > 2026-09-stocks-mean-reversion-v2",
+          "experiments/2026-09-crypto-donchian-breakout.json > 2026-09-crypto-donchian-breakout",
+          "experiments/2026-09-stocks-mean-reversion-v3.json > 2026-09-stocks-mean-reversion-v3"
+        ]
+      },
+      {
+        "id": "r20",
+        "question": "What is the trailing stop trap that made some exits arithmetically unable to profit?",
+        "first_relevant_rank": null,
+        "top3": [
+          "DECISIONS.md > Decision log > 2026-09-01 \u2014 A discretionary exit may not close at a loss",
+          "DECISIONS.md > Decision log > 2026-09-01 \u2014 A discretionary exit may not close at a loss > The fix",
+          "DECISIONS.md > Decision log > 2026-10-01 \u2014 Stop-outs: wick hits or real reversals? (a study, not a change)"
+        ]
+      }
+    ],
+    "hybrid": [
+      {
+        "id": "r10",
+        "question": "Why did SUI do so well compared with the other Donchian trades?",
+        "first_relevant_rank": 6,
+        "top3": [
+          "DECISIONS.md > Decision log > 2026-10-10 \u2014 Why SUI \"did so well\": it didn't, particularly \u2014 and the ledger was mislabelling every crypto trade",
+          "DECISIONS.md > Decision log > 2026-10-10 \u2014 Why SUI \"did so well\": it didn't, particularly \u2014 and the ledger was mislabelling every crypto trade",
+          "DECISIONS.md > Decision log > 2026-09-30 \u2014 The cumulative P&L curve, per market"
+        ]
+      },
+      {
+        "id": "r12",
+        "question": "What are the standing rules of the decision log?",
+        "first_relevant_rank": 6,
+        "top3": [
+          "DECISIONS.md > Decision log > 2026-09-30 \u2014 Stock registration v3 \u2192 v4: a misspecified rule and a stale date > Under v4 the observer reports",
+          "DECISIONS.md > Decision log > 2026-09-30 \u2014 Stock registration v3 \u2192 v4: a misspecified rule and a stale date > Changed",
+          "DECISIONS.md > Decision log"
+        ]
+      },
+      {
+        "id": "r14",
+        "question": "How did the First Candle Rule paper run conclude?",
+        "first_relevant_rank": 7,
+        "top3": [
+          "experiments/2026-09-spy-first-candle-rule.json > 2026-09-spy-first-candle-rule",
+          "strategies/first_candle_rule.py > first_candle_rule",
+          "experiments/2026-09-spy-first-candle-rule.json > 2026-09-spy-first-candle-rule"
+        ]
+      },
+      {
+        "id": "r20",
+        "question": "What is the trailing stop trap that made some exits arithmetically unable to profit?",
+        "first_relevant_rank": 6,
+        "top3": [
+          "DECISIONS.md > Decision log > 2026-09-01 \u2014 A discretionary exit may not close at a loss > The fix",
+          "DECISIONS.md > Decision log > 2026-09-01 \u2014 A discretionary exit may not close at a loss",
+          "experiments/2026-09-stocks-mean-reversion-v3.json > 2026-09-stocks-mean-reversion-v3"
+        ]
+      }
+    ]
+  }
+}
