@@ -52,10 +52,10 @@ class AgentResult:
         return asdict(self)
 
 
-def _retrieval_context(question: str, k: int) -> tuple[str, list[str]]:
+def _retrieval_context(question: str, k: int, gateway=None) -> tuple[str, list[str]]:
     from ..retrieval.index import Index
-    from ..retrieval.search import format_context, search
-    hits = search(Index.load_or_build(), question, k=k)
+    from ..retrieval.search import format_context, rerank_enabled, search
+    hits = search(Index.load_or_build(), question, k=k, rerank=rerank_enabled(), gateway=gateway)
     return format_context(hits), [h.citation() for h in hits]
 
 
@@ -71,7 +71,7 @@ def run_agent(question: str, *, gateway: ModelGateway | None = None, store: Stor
     user_text = question
     if with_retrieval:
         try:
-            ctx, sources = _retrieval_context(question, k)
+            ctx, sources = _retrieval_context(question, k, gateway)
             user_text = f"{ctx}\n\nQuestion: {question}"
         except Exception as e:   # retrieval is optional; the agent still has its tools
             user_text = f"(retrieval unavailable: {type(e).__name__})\n\nQuestion: {question}"

@@ -211,6 +211,11 @@ class OfflineProvider:
         if "JUDGE" in sys_text.upper() and "RUBRIC" in sys_text.upper():
             return self._resp(model, [{"type": "text", "text": self._judge(_last_user_text(messages))}],
                               "end_turn", messages, system)
+        if "RERANK" in sys_text.upper():
+            m = re.search(r"at most (\d+)", _last_user_text(messages))
+            n = int(m.group(1)) if m else 5
+            return self._resp(model, [{"type": "text", "text": json.dumps(list(range(1, n + 1)))}],
+                              "end_turn", messages, system)
         if tools:
             return self._agent_step(model, messages, system, tools)
         text = _last_user_text(messages)

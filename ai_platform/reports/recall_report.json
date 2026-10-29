@@ -1,10 +1,10 @@
 {
   "embedder": "model2vec:minishlab/potion-base-8M",
-  "chunks": 234,
+  "chunks": 236,
   "questions": 20,
   "recall_at_k": {
     "keyword": {
-      "@1": 0.65,
+      "@1": 0.6,
       "@3": 0.8,
       "@5": 0.9,
       "@8": 1.0,
@@ -18,16 +18,23 @@
       "@10": 0.8
     },
     "hybrid": {
-      "@1": 0.55,
-      "@3": 0.75,
+      "@1": 0.5,
+      "@3": 0.65,
       "@5": 0.8,
+      "@8": 1.0,
+      "@10": 1.0
+    },
+    "hybrid+rerank": {
+      "@1": 0.8,
+      "@3": 0.95,
+      "@5": 1.0,
       "@8": 1.0,
       "@10": 1.0
     }
   },
   "first_relevant_rank": {
     "keyword": {
-      "r01": 1,
+      "r01": 2,
       "r02": 1,
       "r03": 1,
       "r04": 1,
@@ -42,10 +49,10 @@
       "r13": 1,
       "r14": 7,
       "r15": 1,
-      "r16": 2,
+      "r16": 3,
       "r17": 1,
       "r18": 1,
-      "r19": 7,
+      "r19": 8,
       "r20": 1
     },
     "vector": {
@@ -71,7 +78,7 @@
       "r20": null
     },
     "hybrid": {
-      "r01": 1,
+      "r01": 4,
       "r02": 1,
       "r03": 1,
       "r04": 1,
@@ -86,11 +93,33 @@
       "r13": 1,
       "r14": 7,
       "r15": 1,
-      "r16": 3,
+      "r16": 4,
       "r17": 1,
       "r18": 2,
       "r19": 4,
       "r20": 6
+    },
+    "hybrid+rerank": {
+      "r01": 2,
+      "r02": 1,
+      "r03": 1,
+      "r04": 1,
+      "r05": 1,
+      "r06": 1,
+      "r07": 4,
+      "r08": 1,
+      "r09": 1,
+      "r10": 3,
+      "r11": 1,
+      "r12": 1,
+      "r13": 1,
+      "r14": 1,
+      "r15": 1,
+      "r16": 1,
+      "r17": 1,
+      "r18": 3,
+      "r19": 1,
+      "r20": 1
     }
   },
   "misses_at_5": {
@@ -108,7 +137,7 @@
       {
         "id": "r19",
         "question": "What RSI oversold and overbought thresholds do the stock bots run?",
-        "first_relevant_rank": 7,
+        "first_relevant_rank": 8,
         "top3": [
           "strategies/rsi_mean_reversion.py > rsi_mean_reversion",
           "README.md > Evaluate a different candidate filter > 7. Stock Bots (`add_stock.py`)",
@@ -219,6 +248,7 @@
           "experiments/2026-09-stocks-mean-reversion-v3.json > 2026-09-stocks-mean-reversion-v3"
         ]
       }
-    ]
+    ],
+    "hybrid+rerank": []
   }
 }

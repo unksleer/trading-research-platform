@@ -29,13 +29,14 @@ TASK_ROUTES: dict[str, str] = {
     "classify": CHEAP_MODEL,
     "extract": CHEAP_MODEL,
     "judge": CHEAP_MODEL,
+    "rerank": CHEAP_MODEL,
     "answer": FRONTIER_MODEL,
     "reason": FRONTIER_MODEL,
     "agent": FRONTIER_MODEL,
 }
 # Effort is the only depth control on the 5.5 models (thinking is always on).
 TASK_EFFORT: dict[str, str] = {
-    "classify": "low", "extract": "low", "judge": "low",
+    "classify": "low", "extract": "low", "judge": "low", "rerank": "low",
     "answer": "medium", "reason": "high", "agent": "medium",
 }
 DEFAULT_DAILY_BUDGET_USD = float(os.environ.get("AI_PLATFORM_DAILY_BUDGET_USD", "5.00"))

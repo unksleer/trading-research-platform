@@ -23,6 +23,7 @@ from ..agent import proposals
 from ..agent.agent import run_agent
 from ..gateway import ModelGateway
 from ..gateway.report import summarise as gateway_summary
+from ..retrieval.search import rerank_enabled
 from .scorer import deterministic_score, fill_template, judge_score, live_state_fingerprint
 
 EVAL_SET = Path(__file__).with_name("eval_set.json")
@@ -39,7 +40,7 @@ def load_eval_set(path: Path = EVAL_SET) -> list[dict]:
 def answer_rag(gateway: ModelGateway, question: str, k: int, interaction_id: str) -> tuple[str, list[str], float]:
     from ..retrieval.index import Index
     from ..retrieval.search import format_context, search
-    hits = search(Index.load_or_build(), question, k=k)
+    hits = search(Index.load_or_build(), question, k=k, rerank=rerank_enabled(), gateway=gateway)
     prompt = f"{format_context(hits)}\n\nQuestion: {question}"
     r = gateway.complete("answer", [{"role": "user", "content": prompt}], system=RAG_SYSTEM,
                          max_tokens=2000, interaction_id=interaction_id)
@@ -105,6 +106,7 @@ def run(questions: list[dict], *, gateway: ModelGateway | None = None, k: int = 
     report = {
         "run_id": run_id, "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "provider": gateway.provider.name, "questions": len(results), "k": k, "rag_k": rag_k, "judge_used": use_judge,
+        "rerank": rerank_enabled(),
         "index": index_meta,
         "score_pct": round(sum(r["score"] for r in results) / (2 * len(results)) * 100, 1) if results else 0.0,
         "by_kind_pct": {kd: round(sum(v) / (2 * len(v)) * 100, 1) for kd, v in by_kind.items()},
@@ -124,7 +126,7 @@ def run(questions: list[dict], *, gateway: ModelGateway | None = None, k: int = 
 def render(rep: dict) -> str:
     ix = rep.get("index") or {}
     lines = [f"\n=== eval {rep['run_id']}  provider={rep['provider']}  questions={rep['questions']}  judge={'on' if rep['judge_used'] else 'off'}"
-             f"  k={rep['k']} rag_k={rep.get('rag_k', rep['k'])}",
+             f"  k={rep['k']} rag_k={rep.get('rag_k', rep['k'])} rerank={'on' if rep.get('rerank') else 'off'}",
              f"index: {ix.get('embedder')}  {ix.get('documents')} documents / {ix.get('chunks')} chunks  built {ix.get('built_at')}",
              f"SCORE {rep['score_pct']}%   by kind: " + "  ".join(f"{k} {v}%" for k, v in rep["by_kind_pct"].items())
              + f"   full {rep['full_marks']} / partial {rep['partial']} / zero {rep['zero']} / errors {rep['errors']}",

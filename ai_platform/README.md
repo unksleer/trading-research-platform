@@ -38,7 +38,7 @@ python -m ai_platform.gateway.report [--provider anthropic|offline|all] [--day 2
 # 2. retrieval
 python -m ai_platform.retrieval.index                      # build the index (32 docs, ~234 chunks)
 python -m ai_platform.retrieval.search "why was crypto retired" -k 5 [--mode hybrid|keyword|vector]
-python -m ai_platform.retrieval.recall                      # recall@{1,3,5,10} x {keyword,vector,hybrid} -> reports/recall_report.json
+python -m ai_platform.retrieval.recall                      # recall@{1,3,5,8,10} x {keyword,vector,hybrid,hybrid+rerank} -> reports/recall_report.json
 
 # 3. agent
 python -m ai_platform.agent.agent "What is the stock win rate since 2026-09-04?"
@@ -59,7 +59,7 @@ python -m pytest ai_platform/tests -q
 
 | task type | model | effort | used by |
 |---|---|---|---|
-| classify, extract, judge | `claude-haiku-5-5` | low | the eval judge |
+| classify, extract, judge, rerank | `claude-haiku-5-5` | low | the eval judge; the optional retrieval reranker (`AI_PLATFORM_RERANK=1`, default off) |
 | answer, reason, agent | `claude-opus-5-5` | medium (reason: high) | RAG answers, the agent loop |
 
 On any provider error or a `refusal` stop the gateway retries once on the other model and logs both rows.

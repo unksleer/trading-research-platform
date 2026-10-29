@@ -1,6 +1,8 @@
 """
-Recall@k on the 20 hand-labelled questions, for keyword, vector and hybrid
-search, k in {1, 3, 5, 8, 10}. Writes ai_platform/reports/recall_report.json.
+Recall@k on the 20 hand-labelled questions, for keyword, vector, hybrid and
+hybrid+rerank search, k in {1, 3, 5, 8, 10}. Writes
+ai_platform/reports/recall_report.json. The hybrid+rerank row reranks 20
+candidates with the cheap model (20 calls per run); offline it equals hybrid.
 
     python -m ai_platform.retrieval.recall [--rebuild] [--embedder model2vec|hash]
 """
@@ -17,7 +19,7 @@ from .search import search
 
 QUESTIONS_FILE = Path(__file__).with_name("labelled_questions.json")
 KS = (1, 3, 5, 8, 10)
-MODES = ("keyword", "vector", "hybrid")
+MODES = ("keyword", "vector", "hybrid", "hybrid+rerank")
 
 
 def load_questions(path: Path = QUESTIONS_FILE) -> list[dict]:
@@ -29,11 +31,21 @@ def is_relevant(hit, relevant: list[dict]) -> bool:
     return any(hit.source.startswith(r["source"]) and r["contains"].lower() in text for r in relevant)
 
 
-def measure(index: Index, questions: list[dict], ks=KS, modes=MODES) -> dict:
+def _search_for(mode: str, gateway):
+    if mode == "hybrid+rerank":
+        return lambda index, q, k: search(index, q, k, "hybrid", rerank=True, gateway=gateway)
+    return lambda index, q, k: search(index, q, k, mode)
+
+
+def measure(index: Index, questions: list[dict], ks=KS, modes=MODES, gateway=None) -> dict:
+    if "hybrid+rerank" in modes and gateway is None:
+        from ..gateway import ModelGateway
+        gateway = ModelGateway()
     out: dict = {"embedder": index.meta["embedder"], "chunks": len(index.chunks), "questions": len(questions),
                  "recall_at_k": {}, "first_relevant_rank": {}, "misses_at_5": {}}
     for mode in modes:
-        hits_by_q = {q["id"]: search(index, q["question"], max(ks), mode) for q in questions}
+        fn = _search_for(mode, gateway)
+        hits_by_q = {q["id"]: fn(index, q["question"], max(ks)) for q in questions}
         out["recall_at_k"][mode] = {}
         for k in ks:
             n = sum(any(is_relevant(h, q["relevant"]) for h in hits_by_q[q["id"]][:k]) for q in questions)
@@ -53,9 +65,9 @@ def measure(index: Index, questions: list[dict], ks=KS, modes=MODES) -> dict:
 
 def render(rep: dict) -> str:
     lines = [f"recall@k  embedder={rep['embedder']}  chunks={rep['chunks']}  questions={rep['questions']}",
-             "  mode      " + "".join(f"{'@'+str(k):>7}" for k in KS)]
+             "  mode          " + "".join(f"{'@'+str(k):>7}" for k in KS)]
     for mode, d in rep["recall_at_k"].items():
-        lines.append(f"  {mode:<9} " + "".join(f"{d['@'+str(k)]:>7.2f}" for k in KS))
+        lines.append(f"  {mode:<14}" + "".join(f"{d['@'+str(k)]:>7.2f}" for k in KS))
     for m in rep["misses_at_5"].get("hybrid", []):
         lines.append(f"  hybrid miss@5 {m['id']} rank={m['first_relevant_rank']}: {m['question']}  top3={m['top3']}")
     return "\n".join(lines)
