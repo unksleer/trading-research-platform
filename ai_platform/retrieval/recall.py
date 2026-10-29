@@ -45,7 +45,12 @@ def measure(index: Index, questions: list[dict], ks=KS, modes=MODES, gateway=Non
                  "recall_at_k": {}, "first_relevant_rank": {}, "misses_at_5": {}}
     for mode in modes:
         fn = _search_for(mode, gateway)
+        if mode == "hybrid+rerank":
+            from .rerank import stats as rerank_stats
+            before = rerank_stats.snapshot()
         hits_by_q = {q["id"]: fn(index, q["question"], max(ks)) for q in questions}
+        if mode == "hybrid+rerank":
+            out["rerank"] = rerank_stats.since(before)   # calls, parse_fallbacks, error_fallbacks for this run
         out["recall_at_k"][mode] = {}
         for k in ks:
             n = sum(any(is_relevant(h, q["relevant"]) for h in hits_by_q[q["id"]][:k]) for q in questions)
@@ -68,6 +73,10 @@ def render(rep: dict) -> str:
              "  mode          " + "".join(f"{'@'+str(k):>7}" for k in KS)]
     for mode, d in rep["recall_at_k"].items():
         lines.append(f"  {mode:<14}" + "".join(f"{d['@'+str(k)]:>7.2f}" for k in KS))
+    if "rerank" in rep:
+        r = rep["rerank"]
+        lines.append(f"  hybrid+rerank: {r['calls']} model calls, {r['parse_fallbacks']} parse fallbacks, "
+                     f"{r['error_fallbacks']} error fallbacks (fallback = retriever order kept)")
     for m in rep["misses_at_5"].get("hybrid", []):
         lines.append(f"  hybrid miss@5 {m['id']} rank={m['first_relevant_rank']}: {m['question']}  top3={m['top3']}")
     return "\n".join(lines)

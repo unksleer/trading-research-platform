@@ -10,6 +10,7 @@ from ai_platform.retrieval.embed import HashEmbedder
 from ai_platform.retrieval.index import Index
 from ai_platform.retrieval.rerank import RERANK_SYSTEM, build_prompt, parse_order, rerank
 from ai_platform.retrieval.search import Hit, search
+from ai_platform.tests.test_agent import ledger_root  # noqa: F401  (fixture)
 
 
 class ScriptedProvider:
@@ -72,7 +73,7 @@ def test_valid_order_is_applied_deduplicated_and_padded():
     out = rerank("q", h, gw(p), top_n=4)
     assert [x.chunk_id for x in out] == ["c4", "c2", "c1", "c3"]      # named first, then the rest in order
     assert [x.rank for x in out] == [1, 2, 3, 4]
-    assert p.calls[0]["max_tokens"] == 100 and "RERANK" in p.calls[0]["system"]
+    assert p.calls[0]["max_tokens"] == 200 and "RERANK" in p.calls[0]["system"]
 
 
 def test_prompt_truncates_candidates_and_marks_them_as_data():
@@ -116,3 +117,34 @@ def test_recall_measure_includes_hybrid_plus_rerank_offline():
     idx = Index.build(embedder=HashEmbedder(), save_to=None)
     rep = measure(idx, load_questions()[:3], ks=(1, 5), modes=("hybrid", "hybrid+rerank"), gateway=gw(OfflineProvider()))
     assert rep["recall_at_k"]["hybrid+rerank"] == rep["recall_at_k"]["hybrid"]
+    assert rep["rerank"] == {"calls": 3, "parse_fallbacks": 0, "error_fallbacks": 0}
+
+
+def test_recall_report_counts_parse_fallbacks():
+    from ai_platform.retrieval.recall import load_questions, measure
+    idx = Index.build(embedder=HashEmbedder(), save_to=None)
+    rep = measure(idx, load_questions()[:3], ks=(1,), modes=("hybrid+rerank",), gateway=gw(ScriptedProvider("no json here")))
+    assert rep["rerank"] == {"calls": 3, "parse_fallbacks": 3, "error_fallbacks": 0}
+
+
+def test_parse_failure_logs_stop_reason(caplog):
+    import logging
+    with caplog.at_level(logging.WARNING, logger="ai_platform.retrieval"):
+        rerank("q", hits(3), gw(ScriptedProvider("garbage")), top_n=2)
+    assert "stop_reason=end_turn" in caplog.text and "model=" in caplog.text
+
+
+def test_rerank_is_off_by_default_and_eval_report_records_it(monkeypatch, ledger_root):  # noqa: F811
+    from ai_platform.eval import run_eval
+    from ai_platform.retrieval.search import rerank_enabled
+    monkeypatch.delenv("AI_PLATFORM_RERANK", raising=False)
+    assert rerank_enabled() is False
+    g = gw(OfflineProvider())
+    qs = [q for q in run_eval.load_eval_set() if q["id"] == "q02"]
+    rep = run_eval.run(qs, gateway=g, k=3, use_judge=False, run_id="t", verbose=False)
+    assert rep["rerank"] is False
+    assert [r["task_type"] for r in g.store.query("SELECT task_type FROM calls")] == ["answer"]
+    monkeypatch.setenv("AI_PLATFORM_RERANK", "1")
+    assert rerank_enabled() is True
+    rep = run_eval.run(qs, gateway=gw(OfflineProvider()), k=3, use_judge=False, run_id="t2", verbose=False)
+    assert rep["rerank"] is True
