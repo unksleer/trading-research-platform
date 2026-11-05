@@ -19,6 +19,44 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-05 — v4 will fail its shape rules; the plan for what follows
+
+**Status at 2026-11-05 (ledger since 2026-09-04, `ai_platform.ledger.summarise`):**
+41 closed, 27 wins / 14 losses, win rate 65.9%, avg win +2.305%, avg loss
+−5.283%, profit factor 0.841, net −$11.73, breakeven win rate for this shape
+69.6%. Observer: 46 pooled ≈ 19 effective of 20, verdict ≈ 2026-11-08. Three
+stop-outs today, the third cluster of correlated stops (Oct 16, Oct 20, Nov 5).
+Exit mix: 21 RSI reverts, 14 stop-outs, 6 trailing stops.
+
+**Asked:** whether the next iteration will "put something in" so the strategy
+stops losing. **Answer given:** no. The stop loss is the brake and is working;
+the 14 stops are the entry being wrong 34% of the time. What a new design can
+change is the cost of a wrong trade relative to a right one.
+
+**Plan agreed:**
+
+1. Let v4 reach 20 effective trades (~Nov 8). No change before then; a change
+   voids the registration.
+2. Conclude v4 with the verdict and the numbers above. It will fail the
+   registered shape rules (win rate ≥70%, PF ≥1.0).
+3. Stop-out study on the 14 stops before any design work: MFE before the
+   reversal; price path 5 days after the stop; how many fell on days SPY was
+   down >1%. Those three answers choose between "entry is wrong", "stop is too
+   tight" and "needs a market filter".
+4. Backtest two or three v5 candidates on data to 2026-09-03 only, then walk
+   forward Sep 4 – Nov 8 untouched: a SPY regime filter (below 50-day, or down
+   >1% on the day), a ~3% stop (breakeven win rate ≈57%), a time exit for
+   trades that have not reverted in N days.
+5. Pre-register v5 with the six criteria plus the shape rules; 20 effective
+   trades again (six to eight weeks).
+
+**Stated plainly:** 65% win rate with +2.3% winners is normal for RSI mean
+reversion. v5 tries to buy down the cost of the asymmetric loss, not remove
+it. At 19 effective trades the profit factor has wide error bars; the verdict
+is "did not pass its own rules", not "the strategy loses money".
+
+---
+
 ## 2026-10-26 — Server rebooted for a kernel update; Mac lost local-network access
 
 **What happened:** `dev-server` rebooted itself at 11:56:41 for an automatic
