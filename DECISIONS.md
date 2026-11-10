@@ -19,6 +19,101 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-10 — Stop-out study on v4's 16 stops: the stop is right, the entries in a weak market are wrong
+
+**Asked (2026-11-05 plan, step 3):** before designing v5, find out which of
+three things the stops are: a stop that is too tight, an entry that is wrong,
+or a market condition. Read-only study of the 48 registration trades against
+Alpaca hourly and daily bars (IEX feed, dividend-adjusted). In-sample, 16
+stops, about 20 effective trades: every figure below is a lead to test, not a
+result.
+
+**1. The stop is not too tight.** After a stop the price mostly kept going.
+
+```
+after the stop, close vs exit price: +1d median 0.28 +3d 0.72 +5d -0.61 +10d -2.26
+higher 5d later: 6 of 13 | traded back above ENTRY within 5d: 1 of 13 | within 10d: 3 of 12 | median further low within 5d: -1.71
+```
+
+Only TSLA (Oct 16) recovered its entry inside five days. Same answer as the
+Oct 1 wick study: stock stops are real moves, not noise.
+
+**2. A tighter stop and a time exit both make it worse** on these trades.
+
+```
+actual (5% stop)             win rate  66.7%  avg win +2.18%  avg loss -5.25%  PF 0.83  sum of net%  -14.30  stops 16
+stop at 4%                   win rate  64.6%  avg win +2.18%  avg loss -4.25%  PF 0.93  sum of net%   -4.70  stops 17
+stop at 3%                   win rate  52.1%  avg win +2.15%  avg loss -3.25%  PF 0.72  sum of net%  -21.03  stops 23
+stop at 2%                   win rate  43.8%  avg win +2.33%  avg loss -2.25%  PF 0.81  sum of net%  -11.79  stops 27
+time exit at 3 days          win rate  43.8%  avg win +2.05%  avg loss -2.60%  PF 0.61  sum of net%  -27.20  stops  4
+time exit at 5 days          win rate  45.8%  avg win +2.17%  avg loss -3.28%  PF 0.56  sum of net%  -37.38  stops  8
+time exit at 7 days          win rate  54.2%  avg win +2.19%  avg loss -3.66%  PF 0.71  sum of net%  -23.59  stops 10
+time exit at 10 days         win rate  64.6%  avg win +2.17%  avg loss -5.01%  PF 0.79  sum of net%  -18.06  stops 12
+winners whose low went past -3% before winning: 7 of 32 | past -4%: 1 | past -2%: 12
+```
+
+Winners take a median 6.05 days (p90 11.8) and 7 of 32 dipped past -3% first,
+so cutting earlier in price or in time kills winners faster than it saves on
+losers. The 3% stop floated on Nov 5 is withdrawn. No variant clears PF 1.0.
+
+**3. Half the stops had been ahead, but a break-even stop does not rescue it.**
+Best point reached before the stop: 4 stops under +0.5%, 4 at +0.5 to +1%,
+4 at +1 to +2%, 4 at +2 to +3% (median +1.19%).
+
+```
+break-even stop after +1.0%   PF 0.95  sum net%   -2.08   losers turned into scratches: 8 | winners cut to scratch: 14
+break-even stop after +1.5%   PF 0.81  sum net%  -11.24   losers turned into scratches: 5 | winners cut to scratch: 10
+break-even stop after +2.0%   PF 0.84  sum net%   -9.86   losers turned into scratches: 4 | winners cut to scratch: 6
+break-even stop after +3.0%   PF 0.81  sum net%  -15.83   losers turned into scratches: 0 | winners cut to scratch: 1
+```
+
+Winners revisit their entry price too often on the way up. Not a fix.
+
+**4. The losses are a market-condition problem.** 13 of 16 stops had SPY
+negative over the hold; 7 of 16 fell on days SPY lost more than 1%; 7 of 16
+came on days with two or more stops (Sep 30, Oct 16, Nov 5). Split by the
+market at ENTRY:
+
+```
+all                                n=48  win rate  66.7%  avg net -0.30%  PF 0.83  net $-9.08  stops 16
+SPY above its 50-day at entry      n=40  win rate  70.0%  avg net +0.02%  PF 1.02  net $+6.19  stops 12
+SPY below its 50-day at entry      n= 8  win rate  50.0%  avg net -1.91%  PF 0.34  net $-15.27  stops 4
+SPY down >1% on entry day          n= 7  win rate  42.9%  avg net -1.97%  PF 0.32  net $-13.82  stops 4
+SPY not down >1% on entry day      n=41  win rate  70.7%  avg net -0.01%  PF 0.99  net $+4.74  stops 12
+ticker above its own 50-day        n=23  win rate  60.9%  avg net -0.71%  PF 0.64  net $-14.07  stops 9
+ticker below its own 50-day        n=25  win rate  72.0%  avg net +0.08%  PF 1.05  net $+4.99  stops 7
+blocked by EITHER filter           n=15  win rate  46.7%  PF 0.33  sum net%  -29.08
+kept if both filters applied       n=33  win rate  75.8%  PF 1.36  sum net%  +14.78
+```
+
+The two SPY filters do not overlap (0 trades in both). Fifteen trades taken in
+a weak market lost twice the run's entire loss; the other 33 would have passed
+both shape rules. The ticker's own trend does not help and points the other
+way.
+
+**What this is not.** It is in-sample, on about 14 effective trades, chosen
+after the fact. The "down >1% on entry day" split uses the full day's
+close-to-close move, which is not known at the moment of entry: as measured it
+has look-ahead, and a real rule must use the move from the prior close to the
+entry time. The 50-day split uses the prior day's close and is causal. Bars
+are dividend-adjusted while fills are not, so moves are off by a dividend
+(under 0.5%) on the ETFs.
+
+**5. Stop mechanics.** 6 of 16 exits came in the first 15 minutes of a session
+(overnight gaps). Average slip past the 5% line is -0.25%; the worst, SLV on
+Oct 30, gapped to -7.54%. A stop cannot fix a gap; position count on gap days
+can.
+
+**Conclusion for v5:** keep the 5% stop and the exits. Test ONE change: a
+market-regime gate on new entries (SPY below its 50-day average, and/or SPY
+down more than 1% from the prior close at the time of entry). Backtest on data
+to 2026-09-03 only, with the rule fixed before the run, then walk forward
+Sep 4 to Nov 10 without touching it. If the gate does not show up
+out-of-sample, the honest reading is that v4's entries have no edge and the
+basket is the thing to rethink, not the exits.
+
+---
+
 ## 2026-11-10 — Stocks mean-reversion v4 concluded: failed on its own terms
 
 **What happened:** the observer reached the registered stop at its 10:12 run
