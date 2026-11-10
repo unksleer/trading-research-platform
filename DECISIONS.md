@@ -19,6 +19,71 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-10 — v5 market-gate backtest: rule and pass/fail test fixed before the run
+
+**Asked:** Lee, "Step 1" of the plan in the entry below: test one change to v4,
+a market gate on new entries, on old data. This entry is written and committed
+before any gated simulation has been run. The result goes in a separate entry
+above this one; this one is not edited afterwards.
+
+**Which data is the real test.** The gate was found on the v4 live trades
+(entries Sep 4 to Nov 10). Those trades cannot also confirm it. The data from
+before Sep 4 has never been looked at with this rule, so it is the independent
+test. The Sep 4 to Nov 10 window is run afterwards for two narrower purposes:
+to check the simulator against the live ledger, and to see the causal version
+of the rule on the trades it came from. It is not independent evidence. This
+corrects the wording of the Nov 5 plan, which called that window a walk-forward.
+
+**Data.** Alpaca one-minute bars, IEX feed, split and dividend adjusted,
+2020-07-27 (first available) to 2026-11-10 14:00 UTC, the twelve v4 tickers.
+Fetched once and frozen for the run.
+
+**Simulator.** A minute-by-minute replay of the live loop in `stock_bot.py`,
+not the hourly-close shortcut used on Sep 21: hourly bars built on clock hours
+including the bar still forming, RSI 14, entry when the last completed bar is
+under 35 and the forming bar is at or above it, checks only while the market
+is open. Exits exactly as v4: 5% stop, 8% target, 1.5% trail armed at +1%,
+RSI exit through 65, trail and RSI exit blocked below entry. $100 a trade,
+0.10% slippage a side (the project's backtest convention). Before any gated
+run the ungated simulator is compared with the 48 live trades.
+
+**The gate, two parts, numbers taken from the stop-out study and not tuned:**
+
+- Trend: no new entry when SPY's close on the last completed session is below
+  the average of its last 50 completed session closes.
+- Down day: no new entry when SPY's latest price at the moment of the signal is
+  more than 1.0% below its close on the last completed session.
+
+Both use only prices known at the moment of the signal. Exits are never gated.
+
+**Candidates.** Baseline: v4 as it ran. A: trend only. B: trend or down day.
+
+**Test window.** Entries from 2021-01-04 to 2026-09-03.
+
+**A candidate passes only if all three hold in the test window, gated run
+against baseline run on the same data and costs:**
+
+1. Net P&L is higher than baseline.
+2. Profit factor is at least 0.10 above baseline and at least 1.00.
+3. The baseline trades the gate would have blocked lose money as a group in at
+   least two thirds of the calendar years that have ten or more of them.
+
+**Choosing.** Both pass: A, unless the baseline trades blocked by the down-day
+part alone have a profit factor under 1.00, then B. One passes: that one.
+Neither passes: no v5 from this gate. The conclusion is then that these
+entries have no edge a market filter can rescue, and the basket is what to
+rethink.
+
+**Reported but never used to choose:** trend averages of 20, 100 and 200 days,
+down-day thresholds of 0.5%, 1.5% and 2.0%, results by year and by ticker,
+excess against buy-and-hold on the ledger convention, time in the market.
+
+**What a pass would and would not mean.** A pass makes the gate the v5 proposal
+for Lee to approve and register. It does not show v5 makes money. v4 also had a
+passing backtest (72% wins, profit factor 1.12 on Sep 21) and failed live.
+
+---
+
 ## 2026-11-10 — Stop-out study on v4's 16 stops: the stop is right, the entries in a weak market are wrong
 
 **Asked (2026-11-05 plan, step 3):** before designing v5, find out which of
