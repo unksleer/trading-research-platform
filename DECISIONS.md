@@ -19,6 +19,60 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-10 — Stocks mean-reversion v4 concluded: failed on its own terms
+
+**What happened:** the observer reached the registered stop at its 10:12 run
+(20 effective trades of 20, 48 pooled) and sent the one email it is allowed
+to send. `Registration stopping rule reached` (stop) and `Shape rule breached`
+(warn). The registration is concluded with seal intact; nothing was changed
+during the run.
+
+**Result, registration window only (exits 2026-09-08 to 2026-11-10), computed
+with `utils.graduation.evaluate` and `utils.benchmark`:**
+
+```
+closed 48 · wins 32 · losses 16 · win rate 66.7%
+avg win +2.178% · avg loss -5.25% · profit factor 0.83
+net P&L -$9.08 realized · 2 open at the stop, +$3.52 unrealized
+worst trade -7.54% · per-trade Sharpe -0.081
+strategy -9.08% vs buy-and-hold -4.99% -> excess -4.09%
+exits: RSI fell back through 65: 24 · Stop Loss Triggered: 16 · Trailing Stop: 8
+per ticker ($): DIS +6.63 · JNJ +2.59 · LPL -2.25 · META -2.90 · PG +3.46 · QQQ -5.12
+                SLV -12.58 · SPY -2.84 · TSLA -3.75 · WMT +8.28 · XLP +3.68 · XLU -4.27
+```
+
+| Sealed term | Required | Measured | |
+|---|---|---|---|
+| Primary: pooled excess vs buy-and-hold | > 0 | -4.09% | fail |
+| Shape: win rate | >= 70% | 66.7% | fail |
+| Shape: profit factor | >= 1.00 | 0.83 | fail |
+| Win rate (generic floor) | >= 55% | 66.7% | pass |
+| Net P&L | > 0 | -$9.08 | fail |
+| Per-trade Sharpe | >= 0.35 | -0.081 | fail |
+| Worst trade | >= -2.5% | -7.54% | fail |
+
+**Verdict:** failed. The hypothesis (a positive per-trade edge that beats
+buy-and-hold) is not supported. Per the registration's own power caveat this
+does not prove the strategy loses money; 20 effective trades can rule out a
+large edge, and it has.
+
+**Two things to read carefully.** (1) The buy-and-hold figure uses the gate's
+ledger convention: pooled P&L over one $100 position, against an equal-weight
+hold from each symbol's first entry to its last exit. On the $1,200 actually
+deployed the loss is 0.76%. Either way it is not a pass. (2) The worst trade
+of -7.54% is past the 5% stop, so at least one exit gapped through the stop
+line; that goes into the stop-out study.
+
+**Not changed:** the twelve stock bots are still running in paper with the
+same configuration, and two positions are open. Trades from here are outside
+any registration and are not evidence for or against v4. Whether to leave the
+bots running until v5 is registered is the owner's call.
+
+**Next, per the 2026-11-05 plan:** the stop-out study on the 16 stops, then
+v5 candidates backtested on data to 2026-09-03 and walked forward.
+
+---
+
 ## 2026-11-05 — v4 will fail its shape rules; the plan for what follows
 
 **Status at 2026-11-05 (ledger since 2026-09-04, `ai_platform.ledger.summarise`):**

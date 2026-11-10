@@ -52,8 +52,46 @@
   "stopping_rule": "Stop at 20 effective trades. 2026-10-04, and the 4th of each month after, are REVIEW points, not stops. No configuration change before the stop except a defect that stops trades executing or makes an exit unable to fire; any change to entry, exits or thresholds voids this registration.",
   "started": "2026-09-04",
   "notes": "Position size raised $10 -> $100 on 2026-09-04 at the operator's request, to see dollar figures at the intended scale. Percentage returns are scale-invariant, so the evidence is unchanged; the registration is re-sealed because trade_amount_usd is a sealed field. Exit invariant added 2026-09-01 to both markets: a discretionary exit (trailing stop, strategy signal) may not close a position at a net loss. Stop-loss exempt. Crypto stays parked; the same invariant was applied there and walk-forward over 500 days cut its loss from -$2.64 to -$1.13 without beating buy-and-hold in any variant (17/45 folds). v4 (2026-09-30): start date preserved because the configuration is unchanged and the correction is driven by the Sep 21 backtest, not by the live result. The observer reads shape_rules from this record; changing a rule is a registration edit, never a code edit.",
-  "status": "running",
-  "result": null,
-  "concluded": null,
-  "seal": "a790229c83124095"
+  "status": "concluded",
+  "result": {
+    "window": "exits 2026-09-08 to 2026-11-10 (started 2026-09-04)",
+    "closed_trades": 48,
+    "effective_trades": 20,
+    "open_at_stop": 2,
+    "unrealized_usd_at_stop": 3.52,
+    "wins": 32,
+    "losses": 16,
+    "win_rate_pct": 66.7,
+    "avg_win_pct": 2.178,
+    "avg_loss_pct": -5.25,
+    "profit_factor": 0.83,
+    "net_pnl_usd": -9.08,
+    "worst_trade_pct": -7.54,
+    "per_trade_sharpe": -0.081,
+    "excess_vs_buy_hold_pct": -4.09,
+    "exit_reasons": {
+      "RSI fell back through 65": 24,
+      "Stop Loss Triggered": 16,
+      "Trailing Stop": 8
+    },
+    "shape_rules": {
+      "win_rate_pct": "66.7 < 70.0 FAIL",
+      "profit_factor": "0.83 < 1.00 FAIL"
+    },
+    "graduation": {
+      "passed": 2,
+      "total": 6,
+      "failed": [
+        "net P&L positive",
+        "worst trade >= -2.5%",
+        "Sharpe >= 0.35",
+        "beats buy & hold"
+      ]
+    },
+    "benchmark_note": "excess uses the gate's ledger convention: pooled P&L over one $100 position, against an equal-weight hold from first entry to last exit per symbol. On the $1,200 deployed the loss is 0.76%."
+  },
+  "concluded": "2026-11-10",
+  "seal": "a790229c83124095",
+  "verdict": "FAILED on its own sealed terms at the registered stop (20 effective trades, reached 2026-11-10). Primary criterion failed: pooled excess vs buy-and-hold -4.09%. Both shape rules breached: win rate 66.7% against a 70% floor, profit factor 0.83 against 1.00. Graduation 2 of 6. The hypothesis of a positive per-trade edge that beats buy-and-hold is not supported. Per the power caveat this run cannot prove the strategy loses money; it shows it did not pass. No configuration change was made during the run.",
+  "terms_intact": true
 }
