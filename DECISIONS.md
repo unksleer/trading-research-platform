@@ -19,6 +19,165 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-10 — v5 market-gate backtest result: the trend gate passes its test, the down-day gate is refuted, and the edge is thin
+
+**Asked:** Lee, "Step 1". Run on the terms fixed in the entry two below, which
+was committed (dfbc9e7) before any gated run. `backtest_regime_gate.py`,
+5,856,619 one-minute IEX bars, twelve tickers, 2020-07-27 to 2026-11-10,
+$100 a trade, 0.10% slippage a side. Backtested, not measured.
+
+**1. The replay is the bot.** Ungated, no slippage, against the live ledger:
+
+```
+live ledger          n=  48  win  66.7%  avg win +2.18%  avg loss -5.25%  PF  0.83  net $  -14.30
+replay, same window  n=  50  win  68.0%  avg win +2.33%  avg loss -5.27%  PF  0.94  net $   -5.04
+live trades 48 | replay trades 50 | same entry within 2h: 45 | of those, same exit within 2h: 43
+matched pairs, replay minus live result: mean -0.007%  median +0.000%  largest gap -0.42%
+```
+
+Minute-built hourly bars equal Alpaca's hourly bars exactly (3,108 bars
+compared on SPY, DIS, LPL). The two extra replay trades are trades the live
+bots could not take because two of them were frozen; see the entry below.
+
+**2. Independent test, entries 2021-01-04 to 2026-09-03.**
+
+```
+baseline (v4 as it ran)            n=1343  win  69.5%  avg win +2.17%  avg loss -5.08%  PF  0.97  net $  -55.96  avg -0.04%  worst -13.33%
+A  trend 50d                       n= 915  win  71.7%  avg win +2.09%  avg loss -4.78%  PF  1.10  net $ +129.20  avg +0.14%  worst -12.51%
+B  trend 50d or down 1.0%          n= 863  win  70.6%  avg win +2.02%  avg loss -4.74%  PF  1.02  net $  +23.90  avg +0.03%  worst -12.27%
+
+baseline trades split by the gate's state at entry:
+  kept by both                     n= 770  win  70.6%  PF  1.04  net $  +44.65  avg +0.06%
+  blocked by trend                 n= 449  win  65.0%  PF  0.79  net $ -182.48  avg -0.41%
+  blocked by down day only         n= 124  win  78.2%  PF  1.53  net $  +81.87  avg +0.66%
+
+by year (entries):  baseline | A | baseline trades A blocks
+  2021  base n=227 PF 1.20 $  +54.89 | A n=211 PF 1.20 $  +51.98 | A blocks n= 18 $   -1.54
+  2022  base n=305 PF 0.69 $ -202.56 | A n=101 PF 0.72 $  -56.46 | A blocks n=207 $ -152.28
+  2023  base n=192 PF 0.87 $  -39.80 | A n=127 PF 0.86 $  -24.70 | A blocks n= 66 $  -15.45
+  2024  base n=209 PF 1.24 $  +62.53 | A n=184 PF 1.29 $  +65.82 | A blocks n= 30 $   +9.71
+  2025  base n=224 PF 1.18 $  +53.19 | A n=157 PF 1.49 $  +77.50 | A blocks n= 72 $  -13.35
+  2026  base n=186 PF 1.05 $  +15.79 | A n=135 PF 1.07 $  +15.08 | A blocks n= 56 $   -9.57
+```
+
+**3. Verdict on the fixed terms.**
+
+```
+A: 1 net higher than baseline: yes ($+129.20 vs $-55.96) | 2 PF >= baseline+0.10 and >= 1.00: yes (1.10 vs 0.97) | 3 blocked trades lose in 2/3 of years with 10+: yes (5 of 6)  => PASS
+B: 1 net higher than baseline: yes ($+23.90 vs $-55.96) | 2 PF >= baseline+0.10 and >= 1.00: NO (1.02 vs 0.97) | 3 blocked trades lose in 2/3 of years with 10+: NO (3 of 6)  => FAIL
+CHOICE: A
+```
+
+A, the trend gate alone, is the v5 proposal. It is not registered; that needs
+Lee's OK.
+
+**4. The down-day lead from the stop-out study was wrong.** Measured at the
+moment of entry instead of with the full day's move, trades taken while SPY
+was down more than 1% were the best group in the test (124 trades, 78.2% wins,
+PF 1.53) and all four of them in the Sep to Nov window were winners. The
+study's "7 trades, PF 0.32" was the look-ahead it was flagged for. Dropped.
+
+**5. What the pass is worth. Less than the headline.** Description after the
+fact; none of it was used to choose.
+
+```
+baseline  per-trade Sharpe -0.011 | 1343 pooled = 548 effective trades | t -0.26 effective | $-9.88 a year on up to $1200 deployed
+A         per-trade Sharpe +0.039 |  915 pooled = 374 effective trades | t +0.76 effective | $+22.82 a year on up to $1200 deployed
+A, no slippage (ledger)        n= 915  win  75.5%  PF  1.26  net $ +312.64  avg +0.34%
+baseline, no slippage (ledger) n=1343  win  72.4%  PF  1.11  net $ +212.80  avg +0.16%
+A, 2022 entries left out       n= 814  win  73.0%  PF  1.18  net $ +185.67  avg +0.23%
+consecutive 48-trade runs, ledger figures, passing BOTH shape rules: A 14 of 19 | baseline 15 of 27
+sessions with entries switched off by the trend rule: 391 of 1424 (27%), longest stretch 60 sessions
+against not trading, per symbol: A +10.77% vs hold +71.13% | gate convention: A +129.20% vs hold +69.37% | in market 30.2% of the time
+```
+
+- The gate's gain is mostly one year. Of the $182 the blocked trades lost,
+  $152 is 2022. In the other five years it moves the result by a few dollars
+  either way. It is a bear-market switch, which is what it was meant to be,
+  but the evidence for it is one bear market.
+- A still lost money in 2022 and 2023 (PF 0.72 and 0.86). The gate shrinks the
+  loss; it does not make the entries work in a weak year.
+- The gated edge is not distinguishable from zero: t 0.76 on effective trades.
+- The edge is the size of the cost assumption. Ungated v4 is PF 1.11 with no
+  slippage and 0.97 with 0.10% a side. The live ledger records signal prices,
+  so it sees the no-slippage figure. Paper fills have never been compared
+  with signal prices; that is a gap.
+- Against holding the same twelve symbols A makes about a seventh as much per
+  symbol while in the market 30% of the time. The gate convention (all twelve
+  symbols' P&L over one $100 position) is the only framing in which it beats
+  holding, and it flatters.
+- On v4's own window the trend gate would have blocked 9 trades that lost
+  $12.60. Scored the way the observer scores (ledger prices, exits from
+  Sep 4) the gated replay is 44 trades, 68.2% wins, PF 1.01, against 50
+  trades, 68.0%, PF 0.94 ungated. That is under the 70% win floor and a hair
+  over the PF floor: v5 would also have failed over those ten weeks, by less.
+- The Sep 21 backtest behind v4's shape rules (72%, PF 1.12) covered roughly
+  the last 400 days. This run puts 2025 at PF 1.18 and 2026 at 1.05, so that
+  backtest was right about its period and the period was a good one.
+
+**Sensitivity (reported, not used):** trend average 20d PF 1.09, 50d 1.10,
+100d 1.09, 200d 1.01 (no 200-day average exists before May 2021 in this
+data). Not a knife-edge at 50.
+
+**Not done:** no bot, config or registration was touched. Tests: 520 passed,
+10 new in `tests/test_regime_gate.py` (replay RSI equals the bot's at any
+minute; nothing after the decision moment changes the view or the gate).
+Bar cache is in `scratch/regime_gate_cache` (git-ignored, 269 MB).
+
+**Next, Lee's call:** register v5 = v4 plus the trend gate, in paper, with
+shape rules re-derived from this run; or decide the edge is too thin to spend
+two more months on and go to the basket question first.
+
+---
+
+## 2026-11-10 — Two stock bots frozen since Nov 3 and Nov 4; v4 verdict stands
+
+**Found:** while checking the replay against the ledger. The replay took two
+trades the live run did not: SLV out on Nov 4 (+4.78%) and META Nov 5 to 6
+(+2.50%).
+
+**Cause.** `slv-bot` last logged at 2026-11-03 11:39:14 ET and `meta-bot` at
+2026-11-04 15:01:07 ET, both on the line `--- market check ---`, each a few
+minutes after a failed connection to `data.alpaca.markets` (11:37:58 and
+14:53:37). Both processes are online in
+pm2, asleep in a socket read on an established connection (kernel wait
+`wait_woken`; a healthy bot sits in `do_select`). `fetch_bars` in
+`stock_bot.py` makes its request with no timeout, so a connection that dies
+without closing blocks the loop for good. pm2 sees a live process and does
+nothing.
+
+**Effect.**
+
+- SLV has been LONG since Nov 3 (entry 45.10) with nothing watching its stop
+  or its exits for a week. Paper, so no money, but the 2026-11-10 note that
+  the open positions "need their stops watched" was wrong for this one.
+- META has been flat and blind since Nov 4.
+- The v4 stopping rule allows a fix for "a defect that stops trades executing
+  or makes an exit unable to fire". This was one, unnoticed, on two of twelve
+  bots for the last week of the run.
+- The verdict does not change. With both bots working the replay gives 50
+  trades, 68.0% wins, PF 0.94 at ledger prices, against the sealed floors of
+  70% and 1.00. v4 fails either way, by less than the ledger shows.
+
+**Also found:** `stock_bot.py` lines 651, 661 and 662 use a name `bars` that
+does not exist (the frame is `df`). The signal log for a flat bot has failed
+on every loop since at least Aug 27 with "Could not record signal decision"
+(5,556 times in the SPY log), and the volume filter would crash if it were
+ever switched on. No effect on trades, because the error is caught and the
+volume filter is off.
+
+**Not done:** nothing restarted, no code changed. Restarting a bot makes it
+act at once on a week-old position, which is Lee's call. The fix (a timeout on
+the data request, the `bars` name) is a code change to the bots and is
+separate from the gate test.
+
+**Correction to earlier messages:** the Nov 5 and Nov 10 entries were
+committed on the branch `lab1-container-ci`, which was checked out, while the
+push went to `main`. They were not pushed, although Lee was told they were.
+They are local commits; nothing from Nov 5 on is on GitHub.
+
+---
+
 ## 2026-11-10 — v5 market-gate backtest: rule and pass/fail test fixed before the run
 
 **Asked:** Lee, "Step 1" of the plan in the entry below: test one change to v4,
