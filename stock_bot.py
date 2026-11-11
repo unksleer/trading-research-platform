@@ -72,6 +72,12 @@ TRAILING_ACTIVATION_PCT = float(os.getenv(f"{TICKER}_TRAILING_STOP_ACTIVATION_PE
 MIN_VOLUME_RATIO = float(os.getenv(f"{TICKER}_MIN_VOLUME_RATIO", os.getenv("STOCK_MIN_VOLUME_RATIO", "0.0")))
 COOLDOWN_HOURS = float(os.getenv(f"{TICKER}_COOLDOWN_HOURS_AFTER_LOSS", os.getenv("STOCK_COOLDOWN_HOURS_AFTER_LOSS", "0.0")))
 
+# Seconds the main loop may go without completing, on top of any sleep it has
+# announced, before the watchdog ends the process so pm2 can restart it.
+# 0 switches the watchdog off. Not a trading setting: it changes nothing about
+# when the bot buys or sells, only what happens if the loop stops running.
+WATCHDOG_TIMEOUT_SEC = float(os.getenv("STOCK_WATCHDOG_TIMEOUT_SEC", "600"))
+
 # Which entry/exit logic to run. Measured across 15 symbols on both hourly and
 # daily bars, RSI_MEAN_REVERSION was positive out-of-sample at every threshold
 # tested (66-75% win rate) while SMA_CROSSOVER managed 35-44%. Commission-free
@@ -208,13 +214,31 @@ def record_trade(state: dict, exit_price: float, exit_reason: str):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Alpaca clients
+# ─────────────────────────────────────────────────────────────────────────────
+# Every Alpaca client the loop uses is built here, and nowhere else, so that
+# none can be built without a request timeout. alpaca-py has no timeout of its
+# own: a connection that died without closing blocked fetch_bars for a week on
+# two bots (slv 2026-11-03, meta 2026-11-04) while pm2 showed them online.
+def _trading_client():
+    from alpaca.trading.client import TradingClient
+    from utils.alpaca_http import with_timeout
+    return with_timeout(TradingClient(API_KEY, SECRET_KEY, paper=IS_PAPER))
+
+
+def _data_client():
+    from alpaca.data.historical import StockHistoricalDataClient
+    from utils.alpaca_http import with_timeout
+    return with_timeout(StockHistoricalDataClient(API_KEY, SECRET_KEY))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Market hours check (Eastern Time)
 # ─────────────────────────────────────────────────────────────────────────────
 def is_market_open() -> bool:
     """Returns True if US stock market is currently open (9:30am–4pm ET, Mon–Fri)."""
     try:
-        from alpaca.trading.client import TradingClient
-        client = TradingClient(API_KEY, SECRET_KEY, paper=IS_PAPER)
+        client = _trading_client()
         clock = client.get_clock()
         return clock.is_open
     except Exception as e:
@@ -255,12 +279,11 @@ def minutes_until_open() -> int:
 def fetch_bars(ticker: str, n_bars: int = 100) -> pd.DataFrame:
     """Fetch the last n_bars of 1-hour OHLCV bars for a stock ticker."""
     try:
-        from alpaca.data.historical import StockHistoricalDataClient
         from alpaca.data.requests import StockBarsRequest
         from alpaca.data.timeframe import TimeFrame
         from alpaca.data.enums import Adjustment, DataFeed
 
-        data_client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
+        data_client = _data_client()
         end   = datetime.now(timezone.utc)
         start = end - timedelta(hours=n_bars * 2)  # fetch extra to ensure enough bars
 
@@ -289,6 +312,23 @@ def fetch_bars(ticker: str, n_bars: int = 100) -> pd.DataFrame:
     except Exception as e:
         log.error(f"Failed to fetch bars for {ticker}: {e}")
         return pd.DataFrame()
+
+
+def latest_bar_time(df: pd.DataFrame) -> str:
+    """
+    The timestamp of the newest bar, as the signal log's candle_time.
+
+    fetch_bars returns df.tail(n).reset_index(), so the timestamp is a column
+    and the index is just 0..n-1. Reading the index here would hand the signal
+    log the same row number on every loop, and since the log keeps one row per
+    candle_time it would then write one row and no more. So anything without a
+    real timestamp is an error, not a guess.
+    """
+    if "timestamp" in df.columns:
+        return str(df["timestamp"].iloc[-1])
+    if isinstance(df.index, pd.DatetimeIndex):
+        return str(df.index[-1])
+    raise KeyError("bars have no 'timestamp' column and no datetime index")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -563,10 +603,9 @@ def place_sell(shares: float, price: float, reason: str):
         _notify("SELL", price, shares * price, shares, realized_pnl=_realized_pnl(price, shares))
         return
     try:
-        from alpaca.trading.client import TradingClient
         from alpaca.trading.requests import MarketOrderRequest
         from alpaca.trading.enums import OrderSide, TimeInForce
-        client = TradingClient(API_KEY, SECRET_KEY, paper=IS_PAPER)
+        client = _trading_client()
         req = MarketOrderRequest(
             symbol=TICKER,
             qty=shares,
@@ -607,6 +646,22 @@ def main():
     state = load_state()
     log.info(f"State loaded: position={state['position']}")
 
+    # Second layer behind the request timeouts: if the loop stops completing
+    # for any reason, end the process rather than sit "online" doing nothing.
+    from utils import watchdog as _watchdog
+    loop_watchdog = _watchdog.start(WATCHDOG_TIMEOUT_SEC, name=f"stock/{TICKER}", log=log)
+    if WATCHDOG_TIMEOUT_SEC > 0:
+        log.info(f"  Watchdog: exits if the loop stalls for {WATCHDOG_TIMEOUT_SEC:.0f}s "
+                 f"beyond its sleep")
+    else:
+        log.warning("  Watchdog: OFF (STOCK_WATCHDOG_TIMEOUT_SEC=0)")
+
+    def nap(seconds):
+        # Tell the watchdog how long the loop means to be away, then sleep.
+        # Every pass through the loop ends in one of these.
+        loop_watchdog.beat(allow_sec=seconds)
+        time.sleep(seconds)
+
     while True:
         try:
             # ── Market hours gate ─────────────────────────────────────────────
@@ -614,7 +669,7 @@ def main():
                 mins = minutes_until_open()
                 sleep_mins = min(mins, 30)  # wake every 30m max to recheck
                 log.info(f"Market closed. Next open in ~{mins}m. Sleeping {sleep_mins}m.")
-                time.sleep(sleep_mins * 60)
+                nap(sleep_mins * 60)
                 continue
 
             # ── Fetch data and compute indicators ─────────────────────────────
@@ -622,7 +677,7 @@ def main():
             df = fetch_bars(TICKER, CANDLE_BARS + SMA_LONG + 10)
             if df.empty or len(df) < SMA_LONG + 5:
                 log.warning(f"Not enough bars ({len(df)}). Waiting...")
-                time.sleep(LOOP_INTERVAL)
+                nap(LOOP_INTERVAL)
                 continue
 
             ind = compute_indicators(df)
@@ -648,7 +703,7 @@ def main():
                 should_enter, why = entry_signal(ind)
                 try:
                     signal_logger().record(
-                        str(bars.index[-1]), price, state["position"],
+                        latest_bar_time(df), price, state["position"],
                         describe_decision(ind, state["position"], should_enter,
                                           why, None))
                 except Exception as sig_err:
@@ -658,8 +713,8 @@ def main():
                     # Volume confirmation filter
                     vol_ok = True
                     if MIN_VOLUME_RATIO > 0.0:
-                        avg_vol = float(bars['volume'].rolling(window=20).mean().iloc[-1]) if len(bars) >= 20 else 0
-                        cur_vol = float(bars['volume'].iloc[-1])
+                        avg_vol = float(df['volume'].rolling(window=20).mean().iloc[-1]) if len(df) >= 20 else 0
+                        cur_vol = float(df['volume'].iloc[-1])
                         if avg_vol > 0:
                             vol_ratio = cur_vol / avg_vol
                             if vol_ratio < MIN_VOLUME_RATIO:
@@ -764,7 +819,7 @@ def main():
         except Exception as e:
             log.error(f"Unexpected error: {e}", exc_info=True)
 
-        time.sleep(LOOP_INTERVAL)
+        nap(LOOP_INTERVAL)
 
 
 if __name__ == "__main__":

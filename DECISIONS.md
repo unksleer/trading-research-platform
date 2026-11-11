@@ -19,6 +19,116 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-11 — stock_bot.py: the freeze and the `bars` name are fixed in code; nothing is restarted
+
+**Asked:** Lee, to fix the two defects recorded on 2026-11-10 (two entries
+below). Code and tests only. No strategy parameter, entry rule or exit rule is
+changed. No pm2 process was restarted, so **all twelve bots are still running
+the old code** and `slv-bot` and `meta-bot` are still frozen. The fix takes
+effect for a bot when Lee restarts it.
+
+**1. The freeze: every Alpaca request now times out.** alpaca-py 0.43.5 (the
+version in `.venv`) has no timeout setting. Its `RESTClient` calls
+`self._session.request(method, url, **opts)` and `opts` never carries one, so
+a connection that dies without closing is waited on for ever. The fix is a
+requests transport adapter on that session which fills in a timeout when none
+was given (`utils/alpaca_http.py`): 10 seconds to connect, 30 seconds for the
+next bytes of a reply. A dead connection now raises, the bot's existing
+handling logs it, and the loop tries again on its next tick.
+
+- `stock_bot.py` builds its clients in two places only, `_data_client()` and
+  `_trading_client()`, both with the timeout. They serve `fetch_bars`,
+  `is_market_open` and the live branch of `place_sell`.
+- `AlpacaVenue.client()` in `utils/venue.py` has it too. That is the client
+  behind the live branch of `place_buy` and startup reconciliation, and
+  `fcr_bot.py` uses the same class.
+- `_session` is private to alpaca-py. If an upgrade moves it, `with_timeout`
+  raises instead of handing back an unprotected client, and a test fails.
+- The two numbers can be changed with `ALPACA_CONNECT_TIMEOUT_SEC` and
+  `ALPACA_READ_TIMEOUT_SEC`. Zero, a negative or a typo falls back to 10 and
+  30; the timeout cannot be switched off from `.env`.
+
+**2. Second layer: a watchdog.** The read timeout bounds the wait for the next
+bytes, not the whole request, and not every blocking call in the loop is an
+Alpaca request. So the loop now reports to a watchdog thread
+(`utils/watchdog.py`) before every sleep, saying how long the sleep is. If the
+loop has not come back 600 seconds after that sleep should have ended, the
+watchdog logs `WATCHDOG:` with the main thread's stack (where it was stuck)
+and exits the process with code 70. `STOCK_WATCHDOG_TIMEOUT_SEC` changes the
+600; 0 switches it off.
+
+- What happens next depends on pm2. Nine bots have autorestart on and will
+  come back by themselves. **`spy-bot`, `qqq-bot` and `lpl-bot` were started
+  with `--no-autorestart`**: for those three a watchdog exit leaves the bot
+  stopped. That is visible in `pm2 status`, which a freeze was not, but it is
+  not a restart. Changing it means re-registering those three; not done, Lee's
+  call.
+- A watchdog restart is a restart like any other: the bot re-reads `.env`, so
+  it picks up any tuning change made since it last started, and it acts at
+  once on its saved position. With a 10-minute limit that position is at most
+  about 10 minutes unwatched, against a week.
+
+**3. `bars` → `df`.** Three lines in the main loop used a name that did not
+exist. Two were the volume filter, now reading `df['volume']`. The third was
+the signal log's candle time, `str(bars.index[-1])`. Swapping the name alone
+would have been wrong there: `fetch_bars` returns `df.tail(n).reset_index()`,
+so the index is row numbers and the timestamp is a column. The log keeps one
+row per candle time, so a row number would have written one row and then
+nothing. It now uses `latest_bar_time(df)`, which reads the `timestamp` column
+and raises if there is none.
+
+**What changes when a bot restarts on this code.**
+
+- A flat stock bot starts writing `logs/signal_log_stock-<ticker>.csv`. None
+  of those files exists today. The dashboard prefers that file to scraping the
+  pm2 log, so the source of the "signal" it shows for flat stock bots changes.
+  Not checked on the running dashboard.
+- The log records the **first** evaluation of each hourly bar. The bot
+  evaluates the bar still forming, every minute, so an entry that triggers
+  later in the hour is in the trade ledger but its signal-log row says HOLD.
+  That is how the shared logger deduplicates and it is not changed here.
+- The volume filter no longer crashes. It is still off
+  (`STOCK_MIN_VOLUME_RATIO` defaults to 0) and this entry does not turn it on.
+
+**Tests.** `tests/test_stock_bot_freeze_and_bars.py`, 31 tests. The freeze is
+tested against the thing itself: a local server that accepts a connection and
+never answers (a real alpaca-py client raises a timeout in under a second
+instead of blocking), and a child process blocked in a socket read (it exits
+with code 70 and names the function it was stuck in). The `bars` fix is tested
+by running the bot's real `main()` for one pass with only the clock, the bars,
+the state file and the sleep replaced, and by parsing a real Alpaca-shaped
+response to confirm the timestamp is a column. Against the old `stock_bot.py`
+14 of the 31 fail. Full suite: 549 passed, 3 skipped (518 before, plus 31; the
+3 skips need data files this checkout does not have).
+
+**Not done, not verified.**
+
+- Not run against the live Alpaca API or under pm2. The first restart is the
+  first real run.
+- `utils/notifications.py` opens its SMTP connection with no timeout, and the
+  bot sends mail inside `place_buy` and `place_sell`, before the state file is
+  written. A mail server that hangs would block the loop there. The watchdog
+  now ends that after 10 minutes; a timeout on the SMTP call would be the
+  proper fix. The module is shared with the crypto bots, so it was left alone.
+- `dashboard.py` builds its own `TradingClient` for the market clock with no
+  timeout. Outside the bot loop, not changed.
+- The crypto bots (`bot.py`) were not examined for the same defect.
+
+**To deploy (Lee).** The commit is on branch `claude/gallant-panini-22db10`;
+the bots run from the main checkout, which is on `lab1-container-ci`. From
+`/home/leeunks/coinbase-trading-bot`:
+
+    git merge --ff-only claude/gallant-panini-22db10
+    .venv/bin/python restart_bots.py --check
+    .venv/bin/python restart_bots.py --stocks
+
+or name bots instead of `--stocks` to do it in stages, e.g.
+`restart_bots.py slv-bot meta-bot`. Never `pm2 restart --update-env` by hand.
+`slv-bot` will act on its Nov 3 position (entry 45.10) on its first tick.
+Nothing is pushed.
+
+---
+
 ## 2026-11-10 — v5 market-gate backtest result: the trend gate passes its test, the down-day gate is refuted, and the edge is thin
 
 **Asked:** Lee, "Step 1". Run on the terms fixed in the entry two below, which

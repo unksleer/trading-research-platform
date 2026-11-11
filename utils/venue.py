@@ -128,8 +128,11 @@ class AlpacaVenue(Venue):
     def client(self):
         if self._client is None:
             from alpaca.trading.client import TradingClient
-            self._client = TradingClient(self.api_key, self.secret_key,
-                                         paper=self.paper)
+            from utils.alpaca_http import with_timeout
+            # No request without a timeout: alpaca-py sets none, and a dead
+            # connection then blocks the caller for good (see alpaca_http).
+            self._client = with_timeout(TradingClient(
+                self.api_key, self.secret_key, paper=self.paper))
         return self._client
 
     def is_open(self):

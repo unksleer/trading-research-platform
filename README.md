@@ -298,6 +298,21 @@ Stops, targets, trailing stop and risk limits are shared, so the two differ only
 in entry and strategy exit. An unrecognised value refuses to start rather than
 falling back silently.
 
+**A stuck bot ends itself.** `pm2 status` saying "online" does not mean a bot
+is working: two stock bots sat blocked in a network read for a week in
+November 2026 and pm2 showed them online throughout. Two things now prevent
+that. Every Alpaca request has a timeout (`utils/alpaca_http.py`, 10 seconds
+to connect and 30 seconds to read, `ALPACA_CONNECT_TIMEOUT_SEC` and
+`ALPACA_READ_TIMEOUT_SEC`), so a dead connection raises and the loop retries
+on its next tick. And a watchdog (`utils/watchdog.py`) exits the process with
+code 70 if the loop has not completed 600 seconds after its last announced
+sleep (`STOCK_WATCHDOG_TIMEOUT_SEC`, 0 to switch off), logging `WATCHDOG:` and
+where the loop was stuck. pm2 restarts a bot that exits only if it was started
+with autorestart on; one started with `--no-autorestart` stays stopped. To
+check health directly, compare the modification time of `logs/stock_<ticker>.log`
+with the clock: a working bot writes at least every 30 minutes, every minute
+while the market is open.
+
 Measured across 15 symbols out-of-sample, mean reversion was positive on both
 hourly and daily bars at every threshold tested (66–75% win rate) against
 crossover's 35–44%. Commission-free execution is why: it takes many small moves
