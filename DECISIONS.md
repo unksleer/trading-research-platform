@@ -19,6 +19,51 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-11 — Stock bots restarted on the fix; first live run is clean; slv and meta are unfrozen
+
+**Asked:** Lee, "can you run the restart", after agreeing to merge the fix
+(entry below, commit b242989) into `lab1-container-ci`.
+
+**Done.** `restart_bots.py --stocks` at 11:36 ET, market open. All twelve
+stock bots restarted, identity verified by the script before and after, all
+online in pm2 with a restart count of 1.
+
+**Measured, from the logs, 11:36 to 11:43 ET.**
+
+- Every bot logged `Watchdog: exits if the loop stalls for 600s beyond its
+  sleep`, so every bot is on the new code.
+- Every bot completed 8 loop ticks, one a minute, fetching live bars through
+  the new timeout. No ERROR, WARNING or CRITICAL line in any of the twelve
+  logs. This is the live run the entry below said had not happened.
+- No bot traded in those 8 ticks.
+- `slv-bot`, frozen since Nov 3, loaded its LONG position (entry 45.10,
+  2.217295 shares) and is holding: 47.05 on its first tick, +4.32%, inside its
+  5% stop and 8% target. Its exits are evaluated every minute again. The
+  replay in the 2026-11-10 entry had this trade out on Nov 4 at +4.78%; the
+  live bot missed that exit and its eventual exit will be a different one. v4
+  is already concluded, so this changes nothing there.
+- `meta-bot`, frozen since Nov 4, is flat and evaluating entries again.
+- The ten flat bots each created `logs/signal_log_stock-<ticker>.csv`. After
+  three ticks META's held one row, for the 16:00 UTC bar: one row per hourly
+  bar, as intended. "Could not record signal decision" no longer appears.
+
+**How the restart was run.** `restart_bots.py` passes the calling shell's
+environment to pm2. It was run under `env -i` with only HOME, USER, LOGNAME,
+SHELL, LANG and PATH, so that nothing from the Claude session that ran it was
+copied into the bots.
+
+**Found, not changed.** The twelve bots' pm2 environments already hold
+`CLAUDE_*` variables from some earlier session, including an old messaging
+token. None matches the session that ran this restart. They have no effect on
+trading. pm2 only adds to a process's environment on restart, so removing them
+means deleting and re-registering the bots. Lee's call.
+
+**Still open from the entry below:** autorestart is off on `spy-bot`,
+`qqq-bot` and `lpl-bot`; the trade email has no timeout; the dashboard has not
+been looked at with the new signal files; nothing is pushed.
+
+---
+
 ## 2026-11-11 — stock_bot.py: the freeze and the `bars` name are fixed in code; nothing is restarted
 
 **Asked:** Lee, to fix the two defects recorded on 2026-11-10 (two entries
