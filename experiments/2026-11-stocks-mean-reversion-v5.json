@@ -1,0 +1,70 @@
+{
+  "name": "2026-11-stocks-mean-reversion-v5",
+  "hypothesis": "v4's RSI mean reversion (35/65) on the same 12-ticker basket, with one change: no new entry while SPY's close on the last completed session is below the average of its last 50 completed session closes. With that gate the strategy produces a positive per-trade edge that BEATS BUY-AND-HOLD after costs. v4 failed its sealed terms on 2026-11-10 (win rate 66.7% against 70%, profit factor 0.83 against 1.00). The gate's rule, numbers and pass/fail test were fixed before it was backtested (DECISIONS.md 2026-11-10, commit dfbc9e7); it passed on entries 2021-01-04 to 2026-09-03 (profit factor 1.10 against 0.97 ungated).",
+  "market": "stocks",
+  "symbols": [
+    "DIS",
+    "JNJ",
+    "LPL",
+    "META",
+    "PG",
+    "QQQ",
+    "SLV",
+    "SPY",
+    "TSLA",
+    "WMT",
+    "XLP",
+    "XLU"
+  ],
+  "config": {
+    "strategy": "RSI_MEAN_REVERSION",
+    "rsi_period": 14,
+    "oversold": 35,
+    "overbought": 65,
+    "stop_loss_pct": 5.0,
+    "take_profit_pct": 8.0,
+    "trailing_stop_pct": 1.5,
+    "trailing_activation_pct": 1.0,
+    "exit_invariant": "discretionary exits blocked below break-even; stop-loss exempt",
+    "trade_amount_usd": 100.0,
+    "timeframe": "Hour",
+    "venue": "alpaca_paper",
+    "cooldown_hours_after_loss": 6,
+    "trend_gate": {
+      "symbol": "SPY",
+      "days": 50,
+      "rule": "no new entry when the symbol's close on the last completed session is below the average of its last 50 completed session closes",
+      "applies_to": "entries only; exits are never gated",
+      "unknown": "if the closes cannot be fetched, are fewer than 50, or are more than 5 days old, no entry",
+      "data": "Alpaca daily bars, IEX feed, split and dividend adjusted; the session in progress is excluded"
+    }
+  },
+  "success_criteria": {
+    "primary": "pooled excess vs buy-and-hold > 0",
+    "min_effective_trades": 20,
+    "note": "EFFECTIVE trades. 12 tickers measure as 4.9 independent symbols, so pooled counts overstate evidence ~2.4x.",
+    "count_by": "entry_time",
+    "count_by_note": "A trade counts if it was ENTERED on or after the start date. LPL (entered 2026-11-13) and QQQ (entered 2026-11-16) were opened under v4 on sessions the gate would have blocked; when they close they are not v5 trades.",
+    "secondary": {
+      "win_rate_pct": 55.0,
+      "net_pnl_usd": 0.0,
+      "per_trade_sharpe": 0.35,
+      "worst_trade_pct": -2.5
+    },
+    "power_caveat": "In the gate backtest (entries 2021-01-04 to 2026-09-03, 915 trades, 0.10% slippage a side) the gated strategy's per-trade Sharpe is 0.039 and t is 0.76 on 374 effective trades. 20 effective trades cannot confirm an edge that size. Cut into consecutive 48-trade runs and scored at ledger prices, 12 of 19 gated runs pass both shape rules below, and 15 of 27 ungated (v4) runs pass them too. So a v5 that works exactly as backtested still fails about one time in three, and the ungated strategy passes more than half the time. This run can rule out a disaster or show a large edge. It cannot tell v5 from v4.",
+    "watch_for": "The exit invariant holds losers to the stop by design, so losses cluster near -5% and wins near +2%; that asymmetry is expected and is NOT a signal. The signal is the shape_rules below, applied by the observer from this record. The secondary floors are the generic graduation floors: the backtest of this configuration does not meet worst_trade_pct (223 of 915 trades were worse than -2.5%) or per_trade_sharpe (0.095 at ledger prices), so those two are expected to fail and are not the test. The gate can switch entries off for weeks (27% of backtest sessions, longest stretch 60 sessions); no new trades while SPY is below its average is the gate working, not a fault.",
+    "shape_rules": {
+      "min_win_rate_pct": 71.0,
+      "min_profit_factor": 1.0,
+      "min_effective_trades": 20,
+      "derivation": "Same method as v4: breakeven win rate = avgLoss/(avgLoss+avgWin), rounded up to a whole percent, from the backtest of this exact configuration. Gate backtest of 2026-11-10 (backtest_regime_gate.py), entries 2021-01-04 to 2026-09-03, 915 gated trades, at ledger prices because the observer scores the ledger and the ledger records signal prices: avg win +2.18%, avg loss -5.33%, breakeven 70.97%, achieved 75.5%, profit factor 1.26. With 0.10% slippage a side the same trades are 71.7% and 1.10. A win rate under 71% or a profit factor under 1.0 at 20 effective trades means the edge did not show up."
+    }
+  },
+  "stopping_rule": "Stop at 20 effective trades. 2026-12-17, and the 17th of each month after, are REVIEW points, not stops. No configuration change before the stop except a defect that stops trades executing or makes an exit unable to fire; any change to entry, exits, the trend gate or thresholds voids this registration.",
+  "started": "2026-11-17",
+  "notes": "Everything except the gate is v4 unchanged: same symbols, thresholds, exits, exit invariant and $100 size. cooldown_hours_after_loss (6) was already live under v4 and in the gate backtest; it is listed here so the sealed config is what runs. Gate defaults live in stock_bot.py (STOCK_TREND_GATE_DAYS=50, STOCK_TREND_GATE_SYMBOL=SPY) and a test checks they match this record. Expected length: 20 effective trades is 48 pooled; in the gated backtest a 48-trade run took a median of 103 days (58 to 223). Buy-and-hold uses the ledger convention, as v4 did. The ledger records signal prices, not fills; paper fills have never been compared with them, and at 0.10% slippage a side the backtest's profit factor is 1.10, not 1.26. The observer reads shape_rules and count_by from this record; changing either is a registration edit, never a code edit.",
+  "status": "running",
+  "result": null,
+  "concluded": null,
+  "seal": "7d0055e5d477d5c8"
+}

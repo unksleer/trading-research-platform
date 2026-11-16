@@ -19,6 +19,113 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-16 — Stocks v5 registered: v4 plus the SPY trend gate, terms sealed before it starts
+
+**Asked:** Lee, "Yes, register v5", then "Seal and restart" after seeing the
+terms below. This entry and the registration are committed before the bots are
+restarted on the gate. What the restart showed goes in a separate entry above.
+
+**What prompted it.** SLV stopped out this morning at -5.63% (bought Nov 12
+at 45.33 on RSI recovering through 35, gapped down over the weekend, sold at
+the open at 42.78). The bot did what it is built to do. Checked afterwards:
+the trend gate would have blocked that entry (SPY's Nov 11 close 759.80
+against a 50-session average of 764.56, 0.62% below). It has been off-entries
+every session since Nov 6, so it would also have blocked the SPY trade of
+Nov 6 that made +3.11%. Two trades; no evidence either way. The evidence for
+the gate is still the 2026-11-10 backtest.
+
+**The change.** One rule added to v4, exactly as fixed on 2026-11-10 before it
+was backtested: no new entry while SPY's close on the last completed session
+is below the average of its last 50 completed session closes. Entries only.
+Stops, targets, the trail, the RSI exit and the exit invariant are untouched.
+All twelve bots, SPY included. Code in `utils/market_gate.py` and the flat
+branch of `stock_bot.py` (commit 1b4af9c).
+
+**Is the live rule the backtested rule? Three checks.**
+
+- Same arithmetic: `market_gate.evaluate` against
+  `backtest_regime_gate.market_state` on a 400-session series, identical
+  decision, prior close and average on all 350 sessions that have 50 behind
+  them (a test).
+- Same closes: the backtest took a session's close as the last one-minute IEX
+  print in the regular session; the bot reads Alpaca's daily IEX bars. Over
+  363 sessions (2025-06-02 to 2026-11-09) they agree to the cent on 355,
+  differ by at most 0.013%, and give the same gate decision on 314 of 314.
+- Same answers on live data: the bot's own code, run today, gives prior close
+  and average of 735.40/765.15, 752.72/764.86, 749.93/764.56, 759.80/764.56,
+  757.16/764.44 and 754.27/764.10 for the sessions of Nov 9 to Nov 16, the
+  figures the backtest code gives. All six: entries off.
+
+**Two places the live gate is deliberately not the backtest.**
+
+- The session in progress is excluded. Alpaca serves a daily bar for today
+  whose "close" is the latest price. The backtest never had that problem.
+- Unknown blocks. In the backtest "unknown" only meant "before there are 50
+  closes" and it let entries through. Live it means the closes could not be
+  fetched, or stop more than 5 days short of today, and an entry is refused.
+  An entry taken blind is not evidence about a gated strategy.
+
+**Terms, sealed in `experiments/2026-11-stocks-mean-reversion-v5.json`
+(seal 7d0055e5d477d5c8).**
+
+| Term | v5 | v4 was |
+|---|---|---|
+| Config | v4 unchanged, plus the gate | |
+| Start | 2026-11-17 | 2026-09-04 |
+| Stop | 20 effective trades (48 pooled) | same |
+| Primary | pooled excess vs buy-and-hold > 0 | same |
+| Shape: win rate | >= 71% | >= 70% |
+| Shape: profit factor | >= 1.00 | same |
+| Secondary floors | win 55%, net > 0, Sharpe 0.35, worst -2.5% | same |
+| Trades counted | entered on or after the start | exited on or after the start |
+| Reviews, not stops | the 17th of each month from 2026-12-17 | the 4th |
+
+- **71%** is v4's method on v5's backtest: breakeven win rate =
+  avgLoss/(avgLoss+avgWin), rounded up. Gated backtest, 915 trades, at ledger
+  prices because that is what the observer scores: avg win +2.18%, avg loss
+  -5.33%, breakeven 70.97%, achieved 75.5%, profit factor 1.26. The figure was
+  not picked from the pass rates below; they were computed for 70, 71 and 72
+  and are reported for what they say about the test.
+- **Counted by entry.** LPL (entered Nov 13) and QQQ (entered Nov 16) are open
+  and were entered under v4 on sessions the gate would have blocked. Scoring
+  their exits as v5 trades would grade the gate on entries it did not allow.
+  The registration seals `count_by: entry_time`; `observer.trades_for` and the
+  dashboard panel read it. Every earlier registration still counts by exit.
+- **Start is Nov 17, restart is Nov 16.** Today's session is gated off whatever
+  happens, so no v5 entry can be made before tomorrow's open.
+- `cooldown_hours_after_loss: 6` is now in the sealed config. It was already
+  live under v4 and in the backtest; v4's record left it out.
+
+**What this run can and cannot show. Said before it starts.**
+
+- Cut into consecutive 48-trade runs at ledger prices, the gated backtest
+  passes both shape rules in 12 of 19 runs; the ungated one in 15 of 27. A v5
+  that works exactly as backtested fails about one time in three, and v4
+  passes more than half the time. The run cannot tell v5 from v4. It can rule
+  out a disaster or show a large edge.
+- It will be slow. A 48-trade gated run took a median of 103 days in the
+  backtest (58 to 223). Late February is the middle estimate, not six to
+  eight weeks.
+- Worst trade >= -2.5% and Sharpe >= 0.35 are the generic floors. The backtest
+  of this configuration does not meet them (223 of 915 trades worse than
+  -2.5%; Sharpe 0.095 at ledger prices). They are expected to fail and are
+  not the test.
+- The ledger records signal prices, not fills. With 0.10% slippage a side the
+  backtest's profit factor is 1.10, not 1.26. Paper fills have still never
+  been compared with signal prices.
+- No entries until SPY closes back above its average (764.10 today). A quiet
+  stretch is the gate working.
+
+**Not changed.** No threshold, exit or size. The gate's defaults are in code
+(`STOCK_TREND_GATE_DAYS=50`, `STOCK_TREND_GATE_SYMBOL=SPY`), not `.env`, so a
+restart cannot quietly run v4; `.env` was not edited. `ai_platform/ledger.py`
+still hardcodes v4's start date for its own summaries.
+
+**Tests.** 34 new in `tests/test_trend_gate.py`. Full suite 585 passed,
+2 skipped, with the registration in place.
+
+---
+
 ## 2026-11-11 — Stock bots restarted on the fix; first live run is clean; slv and meta are unfrozen
 
 **Asked:** Lee, "can you run the restart", after agreeing to merge the fix
