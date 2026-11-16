@@ -19,6 +19,38 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-16 — v5 is live: bots restarted on the gate, entries off from the first tick
+
+**Asked:** Lee, "Seal and restart". Done in that order: registration and the
+entry below committed (feff8e2), `lab1-container-ci` fast-forwarded to it,
+then `restart_bots.py --stocks` at 10:25 ET from a clean environment.
+
+**Measured, from the logs, 10:25 to 10:27 ET.**
+
+- All twelve restarted, identity verified by the script before and after, all
+  online, restart count 2.
+- Every bot logged `Trend gate: no new entry while SPY's last close is below
+  its 50-session average` at startup, and the watchdog line.
+- The ten flat bots each worked the gate out on their first tick and logged
+  the same answer: `SPY closed 754.27 on 2026-11-13, -1.29% below its
+  50-session average 764.10: entries off`. That is the figure the backtest
+  code gives for today.
+- QQQ and LPL are holding v4 positions and did not consult the gate, as
+  designed; their exits run as before. Neither will count as a v5 trade.
+- Three ticks each, no ERROR, WARNING or CRITICAL line in any log.
+- The observer, run read-only: `2026-11-stocks-mean-reversion-v5 · Progress ·
+  0 effective trades of 20 · 0 pooled`.
+
+**Not done.** The `dashboard` process was not restarted, so its registration
+panel is still running the old code: it would count a v4 position that closes
+from tomorrow on as a v5 trade until it is restarted. Lee's call. Nothing is
+pushed; `lab1-container-ci` is ahead of GitHub.
+
+**Next review:** 2026-12-17. Nothing about v5 changes before the stop except
+a defect fix.
+
+---
+
 ## 2026-11-16 — Stocks v5 registered: v4 plus the SPY trend gate, terms sealed before it starts
 
 **Asked:** Lee, "Yes, register v5", then "Seal and restart" after seeing the
