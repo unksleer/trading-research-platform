@@ -791,8 +791,21 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 curve.append({"exit_time": r["t"], "cumulative_pnl": running, "symbol": r["s"]})
             wins = [r["pct"] for r in since if r["pct"] > 0]
             losses = [r["pct"] for r in since if r["pct"] < 0]
-            unreal = sum(p.get("unrealized_pnl", 0.0) for p in active_positions
-                         if p.get("market") == market and p.get("unrealized_known", True))
+            # Open positions follow the same scope as closed trades. Under
+            # entry-time counting a position opened before the start is not
+            # this registration's: v5 began with two v4 positions open, and
+            # showing their unrealised P&L as v5's would put a result on a run
+            # that had not made a trade. They are reported separately. A
+            # position with no entry time cannot be shown to predate the
+            # start, so it counts.
+            def carried(p):
+                return bool(scope == "e" and started and p.get("entry_time")
+                            and p["entry_time"] < started)
+            held = [p for p in active_positions if p.get("market") == market]
+            mine = [p for p in held if not carried(p)]
+            before = [p for p in held if carried(p)]
+            unreal = sum(p.get("unrealized_pnl", 0.0) for p in mine
+                         if p.get("unrealized_known", True))
             realized = sum(r["usd"] for r in since)
             out[market] = {
                 "registration": reg.get("name"),
@@ -801,7 +814,11 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 "unrealized_usd": unreal,
                 "total_usd": realized + unreal,
                 "closed": len(since),
-                "open": sum(1 for p in active_positions if p.get("market") == market),
+                "open": len(mine),
+                "open_before_start": len(before),
+                "unrealized_before_start_usd": sum(
+                    p.get("unrealized_pnl", 0.0) for p in before
+                    if p.get("unrealized_known", True)),
                 "wins": len(wins), "losses": len(losses),
                 "win_rate_pct": (100.0 * len(wins) / len(since)) if since else None,
                 "avg_win_pct": (sum(wins) / len(wins)) if wins else None,

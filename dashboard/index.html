@@ -1204,6 +1204,7 @@
                   <div class="pnl-rows">
                     <span class="k">realized (${p.closed} closed)</span><span class="v ${cls(p.realized_usd)}">${money(p.realized_usd)}</span>
                     <span class="k">unrealized (${p.open} open)</span><span class="v ${cls(p.unrealized_usd)}">${money(p.unrealized_usd)}</span>
+                    ${p.open_before_start ? `<span class="k">opened before the start, not counted (${p.open_before_start} open)</span><span class="v ${cls(p.unrealized_before_start_usd)}">${money(p.unrealized_before_start_usd)}</span>` : ''}
                     <span class="k">win rate</span><span class="v">${p.win_rate_pct == null ? '—' : p.win_rate_pct.toFixed(0) + '%'} (${p.wins}W / ${p.losses}L)</span>
                     <span class="k">avg win / avg loss</span><span class="v">${pct(p.avg_win_pct)} / ${pct(p.avg_loss_pct)}</span>
                   </div>

@@ -426,6 +426,49 @@ def test_the_dashboard_scopes_the_same_way_as_the_observer():
     assert 'r[scope] >= started' in src
 
 
+def _panel(monkeypatch, reg, positions):
+    import dashboard
+    monkeypatch.setattr(experiment, "active", lambda: [reg])
+    return dashboard.DashboardHandler.build_pnl_by_market(positions)["stocks"]
+
+
+POSITIONS = [
+    {"market": "stocks", "coin": "QQQ", "entry_time": "2026-11-16T14:30:38+00:00",
+     "unrealized_pnl": -1.11, "unrealized_known": True},          # opened under v4
+    {"market": "stocks", "coin": "SPY", "entry_time": "2026-11-18T15:00:00+00:00",
+     "unrealized_pnl": 2.00, "unrealized_known": True},           # opened under v5
+]
+
+
+def test_the_panel_does_not_put_a_carried_position_on_v5(monkeypatch):
+    """
+    Found on the live dashboard minutes after v5 started: 0 trades, yet the v5
+    panel showed 2 open and -$0.91, the two positions v4 had left open.
+    """
+    reg = {"name": "v5", "market": "stocks", "started": "2026-11-17", "symbols": [],
+           "success_criteria": {"count_by": "entry_time"}}
+    panel = _panel(monkeypatch, reg, POSITIONS)
+    assert panel["open"] == 1
+    assert panel["unrealized_usd"] == pytest.approx(2.00)
+    assert panel["open_before_start"] == 1
+    assert panel["unrealized_before_start_usd"] == pytest.approx(-1.11)
+    assert panel["total_usd"] == pytest.approx(panel["realized_usd"] + 2.00)
+
+
+def test_the_panel_counts_every_open_position_under_exit_scope(monkeypatch):
+    """Registrations counted by exit keep the old behaviour."""
+    reg = {"name": "v4", "market": "stocks", "started": "2026-11-17", "symbols": []}
+    panel = _panel(monkeypatch, reg, POSITIONS)
+    assert panel["open"] == 2 and panel["open_before_start"] == 0
+    assert panel["unrealized_usd"] == pytest.approx(0.89)
+
+
+def test_the_page_shows_carried_positions_as_not_counted():
+    page = _src(os.path.join("dashboard", "index.html"))
+    assert "opened before the start, not counted" in page
+    assert "p.open_before_start" in page
+
+
 def test_a_running_stock_registration_with_a_gate_matches_the_bot(bot):
     """
     If the active registration seals a trend gate, the bot's defaults are that

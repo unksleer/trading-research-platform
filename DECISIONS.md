@@ -19,6 +19,29 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-16 — Dashboard restarted for v5; its panel was putting v4's open positions on v5
+
+**Asked:** Lee, "Restart dashboard", so the registration panel counts v5
+trades by entry time as the observer does. Plain `pm2 restart dashboard` at
+10:28 ET (no `--update-env`; `restart_bots.py` only handles bots).
+
+**Found on the first look.** The panel named the v5 registration, since
+2026-11-17, 0 closed: right. It also showed `2 open` and a total of -$0.91:
+the LPL and QQQ positions v4 had opened, with their unrealised P&L counted as
+v5's. The entry-time scope added this morning covered closed trades and not
+open positions. A run that has not traded was showing a result.
+
+**Fixed.** Under entry-time counting, a position opened before the start is
+not counted in the panel's open count, unrealised figure or total. It is shown
+on its own line, "opened before the start, not counted". Registrations counted
+by exit are unchanged. Display only: no bot, rule or registration term is
+touched. Three tests added; full suite 588 passed, 2 skipped in the worktree.
+
+**Not changed:** the observer already scoped correctly (it only reads closed
+trades).
+
+---
+
 ## 2026-11-16 — v5 is live: bots restarted on the gate, entries off from the first tick
 
 **Asked:** Lee, "Seal and restart". Done in that order: registration and the
