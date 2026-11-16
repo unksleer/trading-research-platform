@@ -446,8 +446,24 @@ class StockSafetyTests(unittest.TestCase):
         self.assertTrue(callable(sb.reconcile_orders))
         sb.reconcile_orders()   # must not raise
 
-    def test_journalling_failure_never_blocks_a_trade(self):
-        """Losing the journal is bad; refusing to trade because of it is worse."""
-        sb = self._bot()
+    def test_journalling_failure_never_blocks_a_sell(self):
+        """
+        Losing the journal is bad; being unable to get out of a position
+        because of it is worse. Until 2026-11-16 this covered buys as well.
+        With real orders a buy is the other way round, and is now refused when
+        its intent cannot be written down first: see
+        test_a_sell_goes_ahead_when_the_journal_cannot_be_written_but_a_buy_does_not
+        in tests/test_broker_paper_orders.py.
+        """
+        import logging
+        from utils.broker_orders import BrokerOrders
+        venue = mock.Mock()
+        venue.parse_response.return_value = {"order_id": "o1", "status": "ACCEPTED"}
+        venue.find_order.return_value = {
+            "order_id": "o1", "status": "FILLED", "filled_size": 1, "average_price": 10}
+        orders = BrokerOrders(venue, "TESTX", "/nonexistent-dir/journal.json",
+                              logging.getLogger("t"), poll_timeout=0.05, poll_interval=0.0)
         with mock.patch("builtins.open", side_effect=OSError("disk full")):
-            sb._journal_intent("cid-1", "BUY", 10.0, 1.0)   # must not raise
+            outcome = orders.sell(1.0, 10.0, "Stop Loss Triggered")   # must not raise
+        self.assertTrue(outcome.filled)
+        venue.submit_sell.assert_called_once()

@@ -39,6 +39,9 @@ EVIDENCE = (
     "logs/correlations.json",
     "logs/signal_log_*.csv",
     "logs/fcr_signals_*.jsonl",
+    # An order-sending rehearsal bot's state, ledger, journal and signal log.
+    "broker_paper/*.json", "broker_paper/*.csv",
+    "logs/order_journal_stock_*.json",
 )
 EXCLUDE = (".env",)
 

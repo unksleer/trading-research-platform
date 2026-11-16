@@ -213,6 +213,13 @@ afterwards.
 plain restart already picks up tuning changes — **`.env` wins for tuning, the
 command line wins for identity.**
 
+`restart_bots.py` handles `bot.py` and `stock_bot.py` processes only. A stock
+bot that sends real orders to Alpaca's paper account runs a different script,
+`broker_paper_bot.py`, so it is not touched by `restart_bots.py --stocks` and
+does not appear as a second bot for its ticker on the dashboard. Starting,
+checking, restarting and stopping one is in
+[`live_trading_stocks.md`](live_trading_stocks.md).
+
 ### 3. Manually Closing Positions (`manual_sell.py`)
 Close an open position manually under lock safety. Targets dry-run files by default or via argument overrides:
 

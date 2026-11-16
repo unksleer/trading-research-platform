@@ -54,13 +54,12 @@ def hourly_bars(n=150, last_volume=1000.0):
                          "low": closes, "close": closes, "volume": volume})
 
 
-@pytest.fixture
-def bot(monkeypatch):
+def load_stock_bot(monkeypatch, path=None, *, name="stock_bot_under_test",
+                   broker_paper=False, env=None, test_keys=True):
     """
-    stock_bot.py loaded as a module, isolated from the running fleet.
-
-    The ticker is one no bot trades, .env is not read, and no log file is
-    opened, so importing it here cannot write into a live bot's files.
+    Load a stock_bot.py as a module, isolated from the running fleet: a ticker
+    no bot trades, .env not read, no log file opened. `path` lets a test load
+    another copy of the file (the one from before a change, say).
     """
     monkeypatch.setenv("STOCK_TICKER", "ZZTEST")
     monkeypatch.setenv("ALPACA_PAPER", "True")
@@ -70,16 +69,33 @@ def bot(monkeypatch):
                 "STOCK_TREND_GATE_DAYS", "STOCK_TREND_GATE_SYMBOL",
                 "ALPACA_CONNECT_TIMEOUT_SEC", "ALPACA_READ_TIMEOUT_SEC"):
         monkeypatch.delenv(key, raising=False)
+    for key, value in (env or {}).items():
+        monkeypatch.setenv(key, value)
     monkeypatch.setattr("utils.env_loader.load", lambda *a, **k: set())
     monkeypatch.setattr(logging, "basicConfig", lambda **k: None)
     monkeypatch.setattr(logging, "FileHandler", lambda *a, **k: logging.NullHandler())
+    from utils import execution_mode
+    monkeypatch.setattr(execution_mode, "REQUESTED",
+                        execution_mode.BROKER_PAPER if broker_paper else None)
 
     spec = importlib.util.spec_from_file_location(
-        "stock_bot_under_test", os.path.join(DIR, "stock_bot.py"))
+        name, path or os.path.join(DIR, "stock_bot.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    module.API_KEY, module.SECRET_KEY = "test-key", "test-secret"
+    if test_keys:
+        module.API_KEY, module.SECRET_KEY = "test-key", "test-secret"
     return module
+
+
+@pytest.fixture
+def bot(monkeypatch):
+    """
+    stock_bot.py loaded as a module, isolated from the running fleet.
+
+    The ticker is one no bot trades, .env is not read, and no log file is
+    opened, so importing it here cannot write into a live bot's files.
+    """
+    return load_stock_bot(monkeypatch)
 
 
 def run_one_pass(bot, monkeypatch, df, *, market_open=True, should_enter=False,

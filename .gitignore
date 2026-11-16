@@ -54,4 +54,8 @@ data/*.sqlite-journal
 completed_trades_*.csv
 trades.csv
 trades_dry.csv
+
+# A broker-paper bot's state, ledger, order journal and signal log
+# (broker_paper_bot.py). Account activity, and this repository is public.
+broker_paper/
 .claude/

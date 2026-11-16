@@ -1,0 +1,134 @@
+{
+ "files": [
+  "completed_trades_stock_zztest_paper.csv",
+  "state_stock_zztest_paper.json",
+  "state_stock_zztest_paper.json.bak",
+  "state_stock_zztest_paper.json.lock"
+ ],
+ "ledger": "ticker,entry_time,exit_time,entry_price,exit_price,entry_reason,exit_reason,gross_pct,net_pct,pnl_usd,shares,mode\nZZTEST,2026-11-16T15:00:01+00:00,2026-11-16T15:00:02+00:00,100.6,106.0,SMA Bullish Cross,Take Profit Triggered,5.3678,5.3678,5.3678,0.994036,PAPER\nZZTEST,2026-11-16T15:00:03+00:00,2026-11-16T15:00:04+00:00,100.0,96.9,SMA Bullish Cross,Stop Loss Triggered,-3.1,-3.1,-3.1,1.0,PAPER\n",
+ "logs": [
+  "INFO ============================================================",
+  "INFO Stock Trading Bot \u2014 ZZTEST (PAPER)",
+  "INFO   Strategy: RSI_MEAN_REVERSION",
+  "INFO   RSI 35/65 | SL=3.0% | TP=5.0%",
+  "INFO   RSI filter: [40.0\u201370.0] | Trade size: $100.0",
+  "INFO   Base URL: https://paper-api.alpaca.markets",
+  "INFO   Trend gate: no new entry while SPY's last close is below its 50-session average",
+  "INFO ============================================================",
+  "INFO State loaded: position=NONE",
+  "INFO   Watchdog: exits if the loop stalls for 600s beyond its sleep",
+  "INFO --- ZZTEST market check ---",
+  "INFO Indicators | SMA_short=100.7200 | SMA_long=100.8700 | short is 0.149% BELOW long | spread=0.149% | RSI=48.1[40.0-70.0] | Position: NONE",
+  "INFO \ud83d\udfe2 BUY SIGNAL \u2014 test entry | RSI=48.1",
+  "INFO [PAPER] BUY 0.994036 ZZTEST @ ~$100.6000  ($100.00)",
+  "INFO --- ZZTEST market check ---",
+  "INFO Indicators | SMA_short=100.7200 | SMA_long=100.8700 | short is 0.149% BELOW long | spread=0.149% | RSI=48.1[40.0-70.0] | Position: LONG",
+  "INFO Holding 0.994036 ZZTEST | Entry=$100.6000 | Current=$101.0000 | P&L: +0.398% ($+0.3976)",
+  "INFO --- ZZTEST market check ---",
+  "INFO Indicators | SMA_short=100.7200 | SMA_long=100.8700 | short is 0.149% BELOW long | spread=0.149% | RSI=48.1[40.0-70.0] | Position: LONG",
+  "INFO \ud83d\udd34 SELL SIGNAL \u2014 Take Profit Triggered | chg=+5.368% | Price=$106.0000",
+  "INFO [PAPER] SELL 0.994036 ZZTEST @ ~$106.0000  reason=Take Profit Triggered",
+  "INFO Trade recorded: Take Profit Triggered  PnL=$+5.3678  gross=+5.368%",
+  "INFO --- ZZTEST market check ---",
+  "INFO Indicators | SMA_short=100.7200 | SMA_long=100.8700 | short is 0.149% BELOW long | spread=0.149% | RSI=48.1[40.0-70.0] | Position: NONE",
+  "INFO --- ZZTEST market check ---",
+  "INFO Indicators | SMA_short=100.7200 | SMA_long=100.8700 | short is 0.149% BELOW long | spread=0.149% | RSI=48.1[40.0-70.0] | Position: NONE",
+  "INFO \ud83d\udfe2 BUY SIGNAL \u2014 test entry | RSI=48.1",
+  "INFO [PAPER] BUY 1.000000 ZZTEST @ ~$100.0000  ($100.00)",
+  "INFO --- ZZTEST market check ---",
+  "INFO Indicators | SMA_short=100.7200 | SMA_long=100.8700 | short is 0.149% BELOW long | spread=0.149% | RSI=48.1[40.0-70.0] | Position: LONG",
+  "INFO \ud83d\udd34 SELL SIGNAL \u2014 Stop Loss Triggered | chg=-3.100% | Price=$96.9000",
+  "INFO [PAPER] SELL 1.000000 ZZTEST @ ~$96.9000  reason=Stop Loss Triggered",
+  "INFO Trade recorded: Stop Loss Triggered  PnL=$-3.1000  gross=-3.100%",
+  "INFO Market closed. Next open in ~45m. Sleeping 30m."
+ ],
+ "naps": [
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  1800
+ ],
+ "notifications": [
+  [
+   [
+    "BUY",
+    100.6,
+    100.0,
+    0.994036
+   ],
+   {}
+  ],
+  [
+   [
+    "SELL",
+    106.0,
+    105.367816,
+    0.994036
+   ],
+   {
+    "realized_pnl": 5.3677944000000055
+   }
+  ],
+  [
+   [
+    "BUY",
+    100.0,
+    100.0,
+    1.0
+   ],
+   {}
+  ],
+  [
+   [
+    "SELL",
+    96.9,
+    96.9,
+    1.0
+   ],
+   {
+    "realized_pnl": -3.0999999999999943
+   }
+  ]
+ ],
+ "signals": [
+  [
+   "2026-11-08 19:00:00+00:00",
+   100.6,
+   "NONE",
+   "{\"blocked_by\": \"\", \"ema\": null, \"final_signal\": \"BUY\", \"raw_signal\": \"HOLD\", \"rsi\": 48.14957502315769, \"sma_long\": 100.86999999999999, \"sma_short\": 100.72, \"spread_pct\": 0.14870625557647615, \"strategy\": \"RSI_MEAN_REVERSION\"}"
+  ],
+  [
+   "2026-11-08 19:00:00+00:00",
+   100.0,
+   "NONE",
+   "{\"blocked_by\": \"\", \"ema\": null, \"final_signal\": \"HOLD\", \"raw_signal\": \"HOLD\", \"rsi\": 48.14957502315769, \"sma_long\": 100.86999999999999, \"sma_short\": 100.72, \"spread_pct\": 0.14870625557647615, \"strategy\": \"RSI_MEAN_REVERSION\"}"
+  ],
+  [
+   "2026-11-08 19:00:00+00:00",
+   100.0,
+   "NONE",
+   "{\"blocked_by\": \"\", \"ema\": null, \"final_signal\": \"BUY\", \"raw_signal\": \"HOLD\", \"rsi\": 48.14957502315769, \"sma_long\": 100.86999999999999, \"sma_short\": 100.72, \"spread_pct\": 0.14870625557647615, \"strategy\": \"RSI_MEAN_REVERSION\"}"
+  ]
+ ],
+ "states": [
+  "{\n    \"version\": 2,\n    \"dry_run\": true,\n    \"position\": \"LONG\",\n    \"entry_price\": 100.6,\n    \"holdings_base\": 0.994036,\n    \"cash_usd\": 100.0,\n    \"trades\": [],\n    \"orders\": {},\n    \"shares\": 0.994036,\n    \"entry_time\": \"2026-11-16T15:00:01+00:00\",\n    \"highest_price\": 100.6,\n    \"ticker\": \"ZZTEST\"\n}",
+  "{\n    \"version\": 2,\n    \"dry_run\": true,\n    \"position\": \"LONG\",\n    \"entry_price\": 100.6,\n    \"holdings_base\": 0.994036,\n    \"cash_usd\": 100.0,\n    \"trades\": [],\n    \"orders\": {},\n    \"shares\": 0.994036,\n    \"entry_time\": \"2026-11-16T15:00:01+00:00\",\n    \"highest_price\": 100.6,\n    \"ticker\": \"ZZTEST\"\n}",
+  "{\n    \"version\": 2,\n    \"dry_run\": true,\n    \"position\": \"NONE\",\n    \"entry_price\": 0.0,\n    \"holdings_base\": 0.0,\n    \"cash_usd\": 100.0,\n    \"trades\": [],\n    \"orders\": {},\n    \"shares\": 0.0,\n    \"entry_time\": null,\n    \"highest_price\": 100.6,\n    \"ticker\": \"ZZTEST\"\n}",
+  "{\n    \"version\": 2,\n    \"dry_run\": true,\n    \"position\": \"NONE\",\n    \"entry_price\": 0.0,\n    \"holdings_base\": 0.0,\n    \"cash_usd\": 100.0,\n    \"trades\": [],\n    \"orders\": {},\n    \"shares\": 0.0,\n    \"entry_time\": null,\n    \"highest_price\": 100.6,\n    \"ticker\": \"ZZTEST\"\n}",
+  "{\n    \"version\": 2,\n    \"dry_run\": true,\n    \"position\": \"LONG\",\n    \"entry_price\": 100.0,\n    \"holdings_base\": 1.0,\n    \"cash_usd\": 100.0,\n    \"trades\": [],\n    \"orders\": {},\n    \"shares\": 1.0,\n    \"entry_time\": \"2026-11-16T15:00:03+00:00\",\n    \"highest_price\": 100.0,\n    \"ticker\": \"ZZTEST\"\n}",
+  "{\n    \"version\": 2,\n    \"dry_run\": true,\n    \"position\": \"NONE\",\n    \"entry_price\": 0.0,\n    \"holdings_base\": 0.0,\n    \"cash_usd\": 100.0,\n    \"trades\": [],\n    \"orders\": {},\n    \"shares\": 0.0,\n    \"entry_time\": null,\n    \"highest_price\": 100.0,\n    \"ticker\": \"ZZTEST\"\n}",
+  "{\n    \"version\": 2,\n    \"dry_run\": true,\n    \"position\": \"NONE\",\n    \"entry_price\": 0.0,\n    \"holdings_base\": 0.0,\n    \"cash_usd\": 100.0,\n    \"trades\": [],\n    \"orders\": {},\n    \"shares\": 0.0,\n    \"entry_time\": null,\n    \"highest_price\": 100.0,\n    \"ticker\": \"ZZTEST\"\n}"
+ ],
+ "watchdog": [
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  1800
+ ]
+}

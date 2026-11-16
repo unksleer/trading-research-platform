@@ -1,5 +1,9 @@
 # Live Trading Setup Guide ($100 Account)
 
+> This guide is for the retired Coinbase crypto bots (`bot.py`). For the stock
+> bots on Alpaca, including the broker-paper rehearsal, see
+> [`live_trading_stocks.md`](live_trading_stocks.md).
+
 To start trading live with a small amount (like $100), follow these step-by-step instructions.
 
 ---

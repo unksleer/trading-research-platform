@@ -21,9 +21,15 @@ PM2 launch (one per ticker):
 
   STOCK_TICKER=LPL TRADE_AMOUNT_USD=10 ALPACA_PAPER=True \\
     pm2 start stock_bot.py --name lpl-bot --interpreter .venv/bin/python --no-autorestart
+
+Execution modes (utils/execution_mode.py, live_trading_stocks.md):
+  simulated     ALPACA_PAPER=True, as above. No order is sent; the ledger
+                records the signal price. What the registered bots run.
+  broker paper  Real orders to Alpaca's paper account, state and ledger from
+                the fills. Started through broker_paper_bot.py, never this file.
+  live          ALPACA_PAPER=False. The same order path, real money.
 """
 import os
-import uuid
 import sys
 import csv
 import json
@@ -52,8 +58,31 @@ from utils import identity as _identity
 _identity.enforce(TICKER)
 TRADE_AMOUNT    = float(os.getenv("TRADE_AMOUNT_USD", 10))
 IS_PAPER        = os.getenv("ALPACA_PAPER", "True").strip().lower() not in ("false", "0", "no")
-API_KEY         = os.getenv("ALPACA_API_KEY", "")
-SECRET_KEY      = os.getenv("ALPACA_SECRET_KEY", "")
+
+# Three execution modes (utils/execution_mode.py). Simulated is the default and
+# sends nothing. Broker paper sends real orders to Alpaca's paper account and
+# is reached only through broker_paper_bot.py, never through an environment
+# variable. Live is ALPACA_PAPER=False.
+from utils import execution_mode as _execution_mode
+if _execution_mode.REQUESTED not in (None, _execution_mode.BROKER_PAPER):
+    sys.exit(f"Unknown execution mode {_execution_mode.REQUESTED!r}; refusing to start.")
+BROKER_PAPER    = _execution_mode.REQUESTED == _execution_mode.BROKER_PAPER
+if BROKER_PAPER and not IS_PAPER:
+    sys.exit("Broker-paper mode with ALPACA_PAPER=False: that would send paper-mode "
+             "orders to the live endpoint. Refusing to start.")
+# True when this process sends orders to a broker. Everything the simulated
+# bots do is on the False side of it.
+SENDS_ORDERS    = BROKER_PAPER or not IS_PAPER
+
+# A live bot reads its own key pair. ALPACA_API_KEY is the paper key that every
+# simulated bot reads from .env, so live cannot share the name: putting a live
+# key there would hand it to all of them.
+if IS_PAPER:
+    API_KEY     = os.getenv("ALPACA_API_KEY", "")
+    SECRET_KEY  = os.getenv("ALPACA_SECRET_KEY", "")
+else:
+    API_KEY     = os.getenv("ALPACA_LIVE_API_KEY", "")
+    SECRET_KEY  = os.getenv("ALPACA_LIVE_SECRET_KEY", "")
 BASE_URL        = os.getenv("ALPACA_BASE_URL",
                             "https://paper-api.alpaca.markets" if IS_PAPER
                             else "https://api.alpaca.markets")
@@ -87,6 +116,19 @@ TREND_GATE_SYMBOL = os.getenv("STOCK_TREND_GATE_SYMBOL", "SPY").strip().upper()
 # when the bot buys or sells, only what happens if the loop stops running.
 WATCHDOG_TIMEOUT_SEC = float(os.getenv("STOCK_WATCHDOG_TIMEOUT_SEC", "600"))
 
+# Order sending only (broker paper and live); the simulated bots never read
+# these. How long an order is asked about before it is cancelled, how long the
+# cancel is waited on, and how long a buy that did not fill is left alone
+# before another is tried. All far inside the watchdog's 600 seconds.
+ORDER_POLL_SEC          = float(os.getenv("STOCK_ORDER_POLL_SEC", "30"))
+ORDER_CANCEL_SEC        = float(os.getenv("STOCK_ORDER_CANCEL_SEC", "15"))
+ORDER_POLL_INTERVAL_SEC = 1.0
+BUY_RETRY_COOLDOWN_SEC  = float(os.getenv("STOCK_BUY_RETRY_COOLDOWN_SEC", "900"))
+# Exit code for "the broker's book and mine disagree". Its own number so pm2
+# can be told to leave the bot stopped on it (--stop-exit-codes 78) while
+# still restarting it after a watchdog exit (70).
+EXIT_BROKER_MISMATCH    = 78
+
 # Which entry/exit logic to run. Measured across 15 symbols on both hourly and
 # daily bars, RSI_MEAN_REVERSION was positive out-of-sample at every threshold
 # tested (66-75% win rate) while SMA_CROSSOVER managed 35-44%. Commission-free
@@ -102,10 +144,44 @@ RSI_OVERBOUGHT = float(os.getenv(f"{TICKER}_RSI_OVERBOUGHT",
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 DIR = os.path.dirname(os.path.abspath(__file__))
-log_path = os.path.join(DIR, "logs", f"stock_{TICKER.lower()}.log")
+MODE = "BROKERPAPER" if BROKER_PAPER else ("PAPER" if IS_PAPER else "LIVE")
+
+# Every file a bot writes is named here. A simulated bot's names are what they
+# have always been. An order-sending bot gets names of its own for all of
+# them, so it can run beside the simulated bot for the same ticker without
+# either writing into the other's log, state, ledger, journal or signal log.
+#
+# Broker paper keeps its state and ledger in broker_paper/ rather than beside
+# the others because the dashboard, the observer and the reports find files by
+# pattern (state_*.json, completed_trades_*.csv). A rehearsal ledger in the
+# project root would be counted as live P&L, and a rehearsal position as one
+# of the registered run's.
+if BROKER_PAPER:
+    RUN_DIR      = os.path.join(DIR, "broker_paper")
+    log_path     = os.path.join(DIR, "logs", f"stock_{TICKER.lower()}_brokerpaper.log")
+    STATE_PATH   = os.path.join(RUN_DIR, f"state_stock_{TICKER.lower()}.json")
+    TRADES_PATH  = os.path.join(RUN_DIR, f"completed_trades_stock_{TICKER.lower()}.csv")
+    JOURNAL_PATH = os.path.join(RUN_DIR, f"order_journal_stock_{TICKER.lower()}.json")
+    SIGNAL_LOG   = (f"stock-{TICKER}", RUN_DIR)
+    LOG_TAG      = f"stock/{TICKER}/brokerpaper"
+elif not IS_PAPER:
+    log_path     = os.path.join(DIR, "logs", f"stock_{TICKER.lower()}_live.log")
+    STATE_PATH   = os.path.join(DIR, f"state_stock_{TICKER.lower()}_live.json")
+    TRADES_PATH  = os.path.join(DIR, f"completed_trades_stock_{TICKER.lower()}_live.csv")
+    JOURNAL_PATH = os.path.join(DIR, "logs", f"order_journal_stock_{TICKER.lower()}_live.json")
+    SIGNAL_LOG   = (f"stock-{TICKER}-live", "logs")
+    LOG_TAG      = f"stock/{TICKER}/live"
+else:
+    log_path     = os.path.join(DIR, "logs", f"stock_{TICKER.lower()}.log")
+    STATE_PATH   = os.path.join(DIR, f"state_stock_{TICKER.lower()}_{MODE.lower()}.json")
+    TRADES_PATH  = os.path.join(DIR, f"completed_trades_stock_{TICKER.lower()}_{MODE.lower()}.csv")
+    JOURNAL_PATH = os.path.join(DIR, "logs", f"order_journal_stock_{TICKER.lower()}.json")
+    SIGNAL_LOG   = (f"stock-{TICKER}", "logs")
+    LOG_TAG      = f"stock/{TICKER}"
+
 logging.basicConfig(
     level=logging.INFO,
-    format=f"%(asctime)s [stock/{TICKER}] %(levelname)s - %(message)s",
+    format=f"%(asctime)s [{LOG_TAG}] %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler(log_path),
         logging.StreamHandler(sys.stdout),
@@ -113,17 +189,30 @@ logging.basicConfig(
 )
 log = logging.getLogger(f"stock_bot.{TICKER}")
 
-MODE = "PAPER" if IS_PAPER else "LIVE"
-
-# ── State file ────────────────────────────────────────────────────────────────
-STATE_PATH  = os.path.join(DIR, f"state_stock_{TICKER.lower()}_{MODE.lower()}.json")
-TRADES_PATH = os.path.join(DIR, f"completed_trades_stock_{TICKER.lower()}_{MODE.lower()}.csv")
-
 TRADE_FIELDNAMES = [
     "ticker", "entry_time", "exit_time", "entry_price", "exit_price",
     "entry_reason", "exit_reason", "gross_pct", "net_pct",
     "pnl_usd", "shares", "mode",
 ]
+
+# The ledger of an order-sending bot. entry_price and exit_price are FILLS
+# there, so the P&L columns are what the account actually made. The signal
+# prices sit beside them: the price the bot decided at, which is what a
+# simulated ledger records and what every backtest assumes. Fill minus signal
+# is the slippage, and the whole backtested edge is about the size of the
+# 0.10% a side the backtest assumed for it (slippage_report.py).
+BROKER_TRADE_FIELDNAMES = TRADE_FIELDNAMES + [
+    "entry_signal_price", "exit_signal_price",
+    "entry_fill_minus_signal_pct", "exit_fill_minus_signal_pct",
+    "entry_order_id", "exit_order_id", "exit_attempts",
+]
+
+# State an order-sending bot keeps that a simulated bot has no use for.
+BROKER_STATE_KEYS = (
+    "entry_signal_price", "entry_order_id", "exit_pending",
+    "exit_filled_shares", "exit_filled_value",
+    "applied_orders", "unwritten_trade",
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -135,9 +224,24 @@ def load_state() -> dict:
             with open(STATE_PATH) as f:
                 return json.load(f)
         except Exception:
-            pass
+            if SENDS_ORDERS:
+                # A simulated bot that cannot read its state starts flat and
+                # loses nothing real. With orders, "flat" is a claim about an
+                # account, and it is not made from a file that would not open.
+                return _load_state_backup_or_stop()
     return {"position": "NONE", "entry_price": 0.0, "shares": 0.0,
             "entry_time": None, "ticker": TICKER, "mode": MODE}
+
+
+def _load_state_backup_or_stop() -> dict:
+    try:
+        with open(STATE_PATH + ".bak") as f:
+            state = json.load(f)
+        log.error(f"{STATE_PATH} could not be read; using its backup. Startup "
+                  f"reconciliation checks it against the broker.")
+        return state
+    except Exception:
+        _stop_on_mismatch(f"state file {STATE_PATH} and its backup are both unreadable")
 
 
 def save_state(state: dict):
@@ -178,6 +282,9 @@ def _to_shared_schema(state: dict) -> dict:
         "entry_time": state.get("entry_time"),
         "highest_price": state.get("highest_price", 0.0),
         "ticker": TICKER,
+        # Nothing is added for a simulated bot: its state file is unchanged.
+        **({key: state[key] for key in BROKER_STATE_KEYS if key in state}
+           if SENDS_ORDERS else {}),
     }
 
 
@@ -487,7 +594,7 @@ def signal_logger():
     global _SIGNAL_LOG
     if _SIGNAL_LOG is None:
         from utils.signal_log import SignalLogger
-        _SIGNAL_LOG = SignalLogger(f"stock-{TICKER}")
+        _SIGNAL_LOG = SignalLogger(SIGNAL_LOG[0], log_dir=SIGNAL_LOG[1])
     return _SIGNAL_LOG
 
 
@@ -501,119 +608,392 @@ def venue():
 
 def place_buy(price: float) -> float:
     """
-    Submit a fractional market buy for TRADE_AMOUNT USD. Returns shares bought.
-
-    The intent is journalled with a generated client order ID *before* the
-    order is sent. If the process dies between submission and the state write,
-    startup reconciliation finds the order at the venue and applies it, rather
-    than the position existing at Alpaca while the bot believes it is flat.
+    The simulated buy. Nothing is sent anywhere: it logs, notifies, and returns
+    the share count TRADE_AMOUNT would have bought at the signal price. An
+    order-sending bot never comes here; it goes through open_position.
     """
+    if SENDS_ORDERS:
+        raise RuntimeError("place_buy is the simulated path; this bot sends orders")
     shares = round(TRADE_AMOUNT / price, 6)
-    if IS_PAPER:
-        log.info(f"[{MODE}] BUY {shares:.6f} {TICKER} @ ~${price:.4f}  (${TRADE_AMOUNT:.2f})")
-        # Stock bots sent no notification of any kind, live or paper, so twelve
-        # of them could trade all week in silence. Alpaca equities are
-        # commission-free, hence the zero fee.
-        _notify("BUY", price, TRADE_AMOUNT, shares)
-        return shares
+    log.info(f"[{MODE}] BUY {shares:.6f} {TICKER} @ ~${price:.4f}  (${TRADE_AMOUNT:.2f})")
+    # Stock bots sent no notification of any kind, live or paper, so twelve
+    # of them could trade all week in silence. Alpaca equities are
+    # commission-free, hence the zero fee.
+    _notify("BUY", price, TRADE_AMOUNT, shares)
+    return shares
 
-    client_order_id = f"{TICKER.lower()}-buy-{uuid.uuid4().hex[:16]}"
-    _journal_intent(client_order_id, "BUY", price, shares)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Real orders: broker paper and live. Nothing below, down to _realized_pnl, is
+# reached by a simulated bot.
+# ─────────────────────────────────────────────────────────────────────────────
+_BROKER = None
+_NO_BUY_BEFORE = None
+_pause = time.sleep     # startup only; the loop's one sleep is in main()
+
+
+def broker():
+    """The order journal and the wait for a fill (utils/broker_orders.py)."""
+    global _BROKER
+    if _BROKER is None:
+        from utils.broker_orders import BrokerOrders
+        _BROKER = BrokerOrders(venue(), TICKER, JOURNAL_PATH, log, mode=MODE,
+                               poll_timeout=ORDER_POLL_SEC,
+                               poll_interval=ORDER_POLL_INTERVAL_SEC,
+                               cancel_timeout=ORDER_CANCEL_SEC)
+    return _BROKER
+
+
+def _stop_on_mismatch(message):
+    """
+    End the process when the broker's book and this bot's cannot be squared.
+
+    It exits rather than sitting there refusing to trade. A stopped process
+    shows as stopped; one that is online and doing nothing looks exactly like
+    one that is working, which is how two bots sat frozen for a week.
+    """
+    log.critical(f"BROKER MISMATCH — {message}. Not trading. Exiting with code "
+                 f"{EXIT_BROKER_MISMATCH}. See live_trading_stocks.md, "
+                 f"'When the bot stops itself'.")
+    sys.exit(EXIT_BROKER_MISMATCH)
+
+
+def _same_qty(a, b) -> bool:
+    return abs(float(a) - float(b)) <= 1e-6
+
+
+def _utcnow():
+    return datetime.now(timezone.utc)
+
+
+def _broker_book(expected_qty, tries=2, wait_sec=2):
+    """
+    (shares of TICKER the broker holds, open orders there that are not this
+    bot's). Raises if the broker cannot be asked.
+
+    Read again before a disagreement is believed. Seen on the paper API on
+    2026-11-16: the list of open orders still showed an order a moment after
+    that order itself reported CANCELED. A real disagreement is still there a
+    few seconds later; a lagging list is not.
+    """
+    for attempt in range(1, tries + 1):
+        held = broker().position_qty()
+        unknown = broker().unknown_open_orders()
+        if (_same_qty(held, expected_qty) and not unknown) or attempt == tries:
+            return held, unknown
+        log.warning(f"Broker shows {held} {TICKER} and {len(unknown)} unknown open "
+                    f"order(s); expected {expected_qty} and none. Reading again.")
+        _pause(wait_sec)
+
+
+def open_position(state: dict, price: float):
+    """
+    Send a market buy for TRADE_AMOUNT and, if it fills, open the position at
+    what was filled. `price` is the signal price; it is kept only to measure
+    the fill against.
+    """
+    global _NO_BUY_BEFORE
+    if _NO_BUY_BEFORE is not None and _utcnow() < _NO_BUY_BEFORE:
+        log.info(f"BUY not sent: the last one did not fill. No new attempt "
+                 f"before {_NO_BUY_BEFORE.isoformat(timespec='seconds')}.")
+        return
+    # The account must be as empty of this ticker as the state file says.
     try:
-        order = venue().submit_buy(TICKER, TRADE_AMOUNT, client_order_id)
-        parsed = venue().parse_response(order)
-        log.info(f"[{MODE}] BUY submitted: {parsed['order_id']} "
-                 f"({client_order_id}) — ${TRADE_AMOUNT:.2f} of {TICKER}")
-        _journal_result(client_order_id, parsed)
-        return shares
+        held, working = _broker_book(0.0)
     except Exception as e:
-        log.error(f"BUY order failed: {e}")
-        _journal_result(client_order_id, {"status": "FAILED", "order_id": ""})
-        return 0.0
+        log.error(f"BUY not sent: could not check the broker first ({e}).")
+        return
+    if held != 0:
+        _stop_on_mismatch(f"about to buy with a flat state file, but the broker "
+                          f"holds {held} {TICKER}")
+    if working:
+        _stop_on_mismatch(f"about to buy, but the broker has {len(working)} open "
+                          f"{TICKER} order(s) this bot has no record of")
 
-
-def _journal_path():
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        "logs", f"order_journal_stock_{TICKER.lower()}.json")
-
-
-def _journal_intent(client_order_id, side, price, size):
-    """Record what we are about to do, before doing it."""
+    from utils.broker_orders import JournalError
     try:
-        path = _journal_path()
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        try:
-            with open(path) as handle:
-                journal = json.load(handle)
-        except (OSError, ValueError):
-            journal = {}
-        journal[client_order_id] = {
-            "ticker": TICKER, "side": side, "price": price, "size": size,
-            "status": "PENDING", "applied": False,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        tmp = path + ".tmp"
-        with open(tmp, "w") as handle:
-            json.dump(journal, handle, indent=2)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp, path)
-    except OSError as e:
-        # Never let journalling failure stop a trade decision; log loudly.
-        log.warning(f"Could not journal order intent: {e}")
+        outcome = broker().buy(TRADE_AMOUNT, price)
+    except JournalError as e:
+        log.critical(f"{e}. No position opened.")
+        return
+    if not outcome.final:
+        return          # settle_outstanding holds the next tick until it is
+    if not outcome.filled:
+        _buy_did_not_fill(outcome)
+        return
+    apply_fill(state, outcome)
 
 
-def _journal_result(client_order_id, parsed):
+def _buy_did_not_fill(outcome):
+    global _NO_BUY_BEFORE
+    _NO_BUY_BEFORE = _utcnow() + timedelta(seconds=BUY_RETRY_COOLDOWN_SEC)
+    log.error(f"BUY not filled ({outcome.status}). No position opened. No new "
+              f"attempt for {BUY_RETRY_COOLDOWN_SEC:.0f}s.")
+
+
+def close_position(state: dict, price: float, reason: str):
+    """
+    Send a market sell for the whole position. The position is closed only by
+    a fill. A sell that is refused, cancelled or unanswered leaves the state
+    file LONG, and the exit stays owed: the next tick sends it again whether
+    or not the signal that asked for it is still showing.
+    """
+    owed = state.get("exit_pending") or {
+        "reason": reason, "signal_price": price,
+        "decided_at": _utcnow().isoformat(), "attempts": 0}
+    owed["attempts"] = int(owed.get("attempts", 0)) + 1
+    state["exit_pending"] = owed
     try:
-        path = _journal_path()
-        with open(path) as handle:
-            journal = json.load(handle)
-        if client_order_id in journal:
-            journal[client_order_id].update({
-                "status": parsed.get("status", ""),
-                "order_id": parsed.get("order_id", ""),
-                "applied": True,
-                "resolved_at": datetime.now(timezone.utc).isoformat(),
-            })
-            tmp = path + ".tmp"
-            with open(tmp, "w") as handle:
-                json.dump(journal, handle, indent=2)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(tmp, path)
+        save_state(state)
+    except Exception as e:
+        # Do not let a disk problem stand between a stop loss and its order.
+        log.critical(f"Could not save state before selling ({e}). Selling anyway.")
+
+    try:
+        held, working = _broker_book(state["shares"])
+    except Exception as e:
+        log.error(f"SELL not sent: could not read the broker's position ({e}). "
+                  f"Position stays OPEN; retried next tick.")
+        return
+    if not _same_qty(held, state["shares"]):
+        _stop_on_mismatch(f"about to sell {state['shares']} {TICKER} but the broker "
+                          f"holds {held}")
+    if working:
+        _stop_on_mismatch(f"about to sell, but the broker has {len(working)} open "
+                          f"{TICKER} order(s) this bot has no record of")
+
+    # The broker's own figure, so the order is for exactly what is there.
+    outcome = broker().sell(held, owed["signal_price"], owed["reason"])
+    if not outcome.final:
+        return
+    if not outcome.filled:
+        log.error(f"SELL not filled ({outcome.status}), attempt {owed['attempts']}. "
+                  f"Position stays OPEN at {state['shares']} {TICKER}; retried next tick.")
+        return
+    apply_fill(state, outcome)
+
+
+def apply_fill(state: dict, outcome):
+    """
+    Write one finished order into the state file and, when it closes the
+    position, into the ledger. Quantity and price are the venue's.
+
+    Order of writes: state first, ledger second, journal last. Each step is
+    safe to repeat, so a crash between any two is made good at the next start
+    without a position or a ledger row being lost or counted twice.
+    """
+    cid = outcome.client_order_id
+    if cid in state.get("applied_orders", []):
+        broker().mark_applied(cid)
+        return
+    qty, fill_price = outcome.filled_qty, outcome.avg_price
+    closed = None
+
+    if outcome.side == "BUY":
+        if state.get("position") != "NONE":
+            _stop_on_mismatch(f"buy {cid} filled {qty} {TICKER} but the state file "
+                              f"already holds a position")
+        state.update({
+            "position":      "LONG",
+            "entry_price":   fill_price,
+            "shares":        qty,
+            "highest_price": fill_price,
+            "entry_time":    _utcnow().isoformat(),
+            "entry_reason":  "SMA Bullish Cross",
+            "entry_signal_price": outcome.signal_price,
+            "entry_order_id": outcome.order_id,
+        })
+        for key in ("exit_pending", "exit_filled_shares", "exit_filled_value"):
+            state.pop(key, None)
+    else:
+        if state.get("position") != "LONG":
+            _stop_on_mismatch(f"sell {cid} filled {qty} {TICKER} but the state file "
+                              f"holds no position")
+        sold = float(state.get("exit_filled_shares", 0.0)) + qty
+        value = float(state.get("exit_filled_value", 0.0)) + qty * fill_price
+        if _same_qty(state["shares"], qty) or qty > state["shares"]:
+            closed = _broker_trade_row(state, sold, value / sold, outcome)
+            state.update({"position": "NONE", "entry_price": 0.0,
+                          "shares": 0.0, "entry_time": None,
+                          "unwritten_trade": closed})
+            for key in ("exit_pending", "exit_filled_shares", "exit_filled_value",
+                        "entry_signal_price", "entry_order_id"):
+                state.pop(key, None)
+        else:
+            # Part of the position sold and the order is finished. Keep the
+            # rest open and the exit owed; the ledger row waits for the last
+            # share so one round trip is one row.
+            state.update({"shares": state["shares"] - qty,
+                          "exit_filled_shares": sold, "exit_filled_value": value})
+
+    state["applied_orders"] = (state.get("applied_orders", []) + [cid])[-20:]
+    save_state(state)
+    if closed is not None:
+        _write_unwritten_trade(state)
+    broker().mark_applied(cid)
+
+    slip = ((fill_price - outcome.signal_price) / outcome.signal_price * 100
+            if outcome.signal_price > 0 else 0.0)
+    log.info(f"[{MODE}] {outcome.side} FILLED {qty:.9f} {TICKER} @ ${fill_price:.4f} "
+             f"(signal ${outcome.signal_price:.4f}, fill minus signal {slip:+.3f}%) "
+             f"order {outcome.order_id}")
+    if outcome.side == "BUY":
+        _notify("BUY", fill_price, qty * fill_price, qty)
+    elif closed is not None:
+        _notify("SELL", closed["exit_price"], closed["shares"] * closed["exit_price"],
+                closed["shares"], realized_pnl=closed["pnl_usd"])
+
+
+def _broker_trade_row(state: dict, shares: float, exit_price: float, outcome) -> dict:
+    entry_price = float(state["entry_price"])
+    owed = state.get("exit_pending") or {}
+    entry_signal = float(state.get("entry_signal_price") or 0.0)
+    exit_signal = float(owed.get("signal_price") or outcome.signal_price or 0.0)
+    gross_pct = (exit_price - entry_price) / entry_price * 100
+
+    def minus_signal(fill, signal):
+        return round((fill - signal) / signal * 100, 4) if signal > 0 else ""
+
+    return {
+        "ticker":       TICKER,
+        "entry_time":   state.get("entry_time", ""),
+        "exit_time":    _utcnow().isoformat(),
+        "entry_price":  round(entry_price, 6),
+        "exit_price":   round(exit_price, 6),
+        "entry_reason": state.get("entry_reason", "SMA Bullish Cross"),
+        "exit_reason":  owed.get("reason") or outcome.reason,
+        "gross_pct":    round(gross_pct, 4),
+        "net_pct":      round(gross_pct, 4),  # no commission
+        "pnl_usd":      round((exit_price - entry_price) * shares, 4),
+        "shares":       round(shares, 9),
+        "mode":         MODE,
+        "entry_signal_price": round(entry_signal, 6),
+        "exit_signal_price":  round(exit_signal, 6),
+        "entry_fill_minus_signal_pct": minus_signal(entry_price, entry_signal),
+        "exit_fill_minus_signal_pct":  minus_signal(exit_price, exit_signal),
+        "entry_order_id": state.get("entry_order_id", ""),
+        "exit_order_id":  outcome.order_id,
+        "exit_attempts":  int(owed.get("attempts") or 1),
+    }
+
+
+def _write_unwritten_trade(state: dict):
+    """Append the closed trade held in state to the ledger, once. The row is
+    kept in the state file until it is in the ledger, so a crash between the
+    two cannot lose it; the order id stops it being written twice."""
+    row = state.get("unwritten_trade")
+    if not row:
+        return
+    already = False
+    if os.path.exists(TRADES_PATH):
+        with open(TRADES_PATH, newline="") as f:
+            already = any(r.get("exit_order_id") == str(row.get("exit_order_id"))
+                          for r in csv.DictReader(f))
+    if not already:
+        new_file = not os.path.exists(TRADES_PATH)
+        with open(TRADES_PATH, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=BROKER_TRADE_FIELDNAMES)
+            if new_file:
+                writer.writeheader()
+            writer.writerow(row)
+            f.flush()
+            os.fsync(f.fileno())
+        log.info(f"Trade recorded: {row['exit_reason']}  PnL=${row['pnl_usd']:+.4f}  "
+                 f"gross={row['gross_pct']:+.3f}%  (from fills)")
+    # For the cooldown filter, as record_trade does for a simulated bot.
+    state["last_exit_time"] = row["exit_time"]
+    state["last_exit_pnl"] = float(row["pnl_usd"])
+    state.pop("unwritten_trade", None)
+    save_state(state)
+
+
+def settle_outstanding(state: dict) -> bool:
+    """
+    Finish any order a previous pass left without a final answer, and write
+    any fill not yet in the state file. True when nothing is outstanding.
+    While it is False the bot sends nothing else. With nothing outstanding
+    this is a look at a dict and no network call.
+    """
+    for cid in broker().outstanding():
+        outcome = broker().settle(cid)
+        if not outcome.final:
+            log.warning(f"Order {cid} still has no final answer from the broker; "
+                        f"nothing else is sent until it has.")
+            return False
+        if outcome.filled:
+            apply_fill(state, outcome)
+        else:
+            broker().mark_applied(cid)
+            if outcome.side == "BUY":
+                _buy_did_not_fill(outcome)
+            else:
+                log.error(f"SELL {cid} not filled ({outcome.status}). Position stays OPEN.")
+    return True
+
+
+def reconcile_orders(state: dict = None):
+    """
+    Square this bot with the broker before the first tick. Order sending only;
+    a simulated bot returns at once.
+
+    1. The endpoint is the one this mode is for: paper for broker paper.
+    2. A closed trade that reached the state file but not the ledger is
+       written to the ledger.
+    3. Every order in the journal without a final answer gets one, and any
+       fill not yet in the state file is written into it.
+    4. The broker's position in this ticker is what the state file says, and
+       the broker has no open order for it.
+
+    If any of that cannot be done the bot stops instead of trading: a position
+    at the broker that the bot does not know about is opened a second time,
+    and one it believes in that is not there is sold short.
+    """
+    if not SENDS_ORDERS:
+        return
+    try:
+        endpoint = venue().endpoint()
+    except Exception as e:
+        _stop_on_mismatch(f"could not build the broker client ({e})")
+    on_paper = "paper-api.alpaca.markets" in endpoint
+    if BROKER_PAPER != on_paper:
+        _stop_on_mismatch(f"mode is {MODE} but orders would go to {endpoint!r}")
+
+    try:
+        broker()
     except (OSError, ValueError) as e:
-        log.warning(f"Could not journal order result: {e}")
+        _stop_on_mismatch(f"order journal {JOURNAL_PATH} cannot be read ({e})")
+    _write_unwritten_trade(state)
 
+    tries = 8       # ten seconds apart: longer than an order can be in flight
+    for attempt in range(1, tries + 1):
+        if settle_outstanding(state):
+            break
+        if attempt == tries:
+            _stop_on_mismatch("an order from before this start still has no final "
+                              "answer from the broker")
+        _pause(10)
 
-def reconcile_orders():
-    """
-    Resolve orders submitted but never confirmed, at startup.
+    mine = float(state.get("shares", 0.0) or 0.0) if state.get("position") == "LONG" else 0.0
+    held = working = None
+    for attempt in range(1, 4):
+        try:
+            held, working = _broker_book(mine, tries=3, wait_sec=5)
+            break
+        except Exception as e:
+            log.warning(f"Could not read the broker's book (try {attempt} of 3): {e}")
+            if attempt == 3:
+                _stop_on_mismatch("the broker's position could not be read, so the "
+                                  "state file cannot be checked against it")
+            _pause(5)
 
-    Without this, a crash between submitting and recording leaves a position at
-    the venue that the bot does not know about — it will then happily open a
-    second one.
-    """
-    if IS_PAPER:
-        return
-    try:
-        with open(_journal_path()) as handle:
-            journal = json.load(handle)
-    except (OSError, ValueError):
-        return
-    unresolved = {k: v for k, v in journal.items() if not v.get("applied")}
-    if not unresolved:
-        log.info("No unresolved orders to reconcile.")
-        return
-    log.warning(f"{len(unresolved)} unresolved order(s); querying venue")
-    for client_order_id in unresolved:
-        order = venue().get_order_by_client_id(client_order_id)
-        if order is None:
-            log.warning(f"  {client_order_id}: not found at venue — never reached it")
-            continue
-        parsed = venue().parse_response(order)
-        log.warning(f"  {client_order_id}: venue reports {parsed['status']} "
-                    f"filled={parsed['filled_size']}")
-        _journal_result(client_order_id, parsed)
+    if not _same_qty(held, mine):
+        _stop_on_mismatch(f"state file says {mine} {TICKER} "
+                          f"(position {state.get('position')}), the broker holds {held}")
+    if working:
+        _stop_on_mismatch(f"the broker has {len(working)} open {TICKER} order(s) "
+                          f"this bot has no record of")
+    log.info(f"  Reconciled with the broker at {endpoint}: {held} {TICKER} held, "
+             f"state file agrees, no open orders.")
 
 
 def _realized_pnl(exit_price: float, shares: float) -> float:
@@ -649,25 +1029,12 @@ def _notify(side: str, price: float, amount_usd: float, shares: float,
 
 
 def place_sell(shares: float, price: float, reason: str):
-    """Submit a market sell for all held shares."""
-    if IS_PAPER:
-        log.info(f"[{MODE}] SELL {shares:.6f} {TICKER} @ ~${price:.4f}  reason={reason}")
-        _notify("SELL", price, shares * price, shares, realized_pnl=_realized_pnl(price, shares))
-        return
-    try:
-        from alpaca.trading.requests import MarketOrderRequest
-        from alpaca.trading.enums import OrderSide, TimeInForce
-        client = _trading_client()
-        req = MarketOrderRequest(
-            symbol=TICKER,
-            qty=shares,
-            side=OrderSide.SELL,
-            time_in_force=TimeInForce.DAY,
-        )
-        order = client.submit_order(req)
-        log.info(f"[{MODE}] SELL order submitted: {order.id} — {shares:.6f} {TICKER}  reason={reason}")
-    except Exception as e:
-        log.error(f"SELL order failed: {e}")
+    """The simulated sell. Nothing is sent. An order-sending bot goes through
+    close_position instead."""
+    if SENDS_ORDERS:
+        raise RuntimeError("place_sell is the simulated path; this bot sends orders")
+    log.info(f"[{MODE}] SELL {shares:.6f} {TICKER} @ ~${price:.4f}  reason={reason}")
+    _notify("SELL", price, shares * price, shares, realized_pnl=_realized_pnl(price, shares))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -680,7 +1047,6 @@ def main():
         log.error(f"STOCK_STRATEGY={STRATEGY!r} is not one of {VALID_STRATEGIES}. "
                   f"Refusing to start rather than silently falling back.")
         sys.exit(1)
-    reconcile_orders()
     log.info(f"  Strategy: {STRATEGY}")
     if STRATEGY == "RSI_MEAN_REVERSION":
         log.info(f"  RSI {RSI_OVERSOLD:.0f}/{RSI_OVERBOUGHT:.0f} | "
@@ -697,11 +1063,20 @@ def main():
     log.info("=" * 60)
 
     if not API_KEY or not SECRET_KEY:
-        log.error("ALPACA_API_KEY and ALPACA_SECRET_KEY must be set in .env — exiting.")
+        if IS_PAPER:
+            log.error("ALPACA_API_KEY and ALPACA_SECRET_KEY must be set in .env — exiting.")
+        else:
+            log.error("LIVE mode: ALPACA_LIVE_API_KEY and ALPACA_LIVE_SECRET_KEY must "
+                      "be set in .env — exiting.")
         sys.exit(1)
 
     state = load_state()
     log.info(f"State loaded: position={state['position']}")
+    if SENDS_ORDERS:
+        log.warning(f"  ORDERS ARE SENT in this mode ({MODE}): ${TRADE_AMOUNT:.2f} a trade. "
+                    f"State {STATE_PATH}, ledger {TRADES_PATH}.")
+        os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
+    reconcile_orders(state)
 
     # Second layer behind the request timeouts: if the loop stops completing
     # for any reason, end the process rather than sit "online" doing nothing.
@@ -727,6 +1102,12 @@ def main():
                 sleep_mins = min(mins, 30)  # wake every 30m max to recheck
                 log.info(f"Market closed. Next open in ~{mins}m. Sleeping {sleep_mins}m.")
                 nap(sleep_mins * 60)
+                continue
+
+            # Order sending only: nothing new until every earlier order has a
+            # final answer from the broker and its fill is in the state file.
+            if SENDS_ORDERS and not settle_outstanding(state):
+                nap(LOOP_INTERVAL)
                 continue
 
             # ── Fetch data and compute indicators ─────────────────────────────
@@ -807,17 +1188,21 @@ def main():
 
                     if vol_ok and cooldown_ok:
                         log.info(f"🟢 BUY SIGNAL — {why} | RSI={rsi:.1f}")
-                        shares = place_buy(price)
-                        if shares > 0:
-                            state.update({
-                                "position":     "LONG",
-                                "entry_price":  price,
-                                "shares":       shares,
-                                "highest_price": price,
-                                "entry_time":   datetime.now(timezone.utc).isoformat(),
-                                "entry_reason": "SMA Bullish Cross",
-                            })
-                            save_state(state)
+                        if SENDS_ORDERS:
+                            # A real order; state is written from its fill.
+                            open_position(state, price)
+                        else:
+                            shares = place_buy(price)
+                            if shares > 0:
+                                state.update({
+                                    "position":     "LONG",
+                                    "entry_price":  price,
+                                    "shares":       shares,
+                                    "highest_price": price,
+                                    "entry_time":   datetime.now(timezone.utc).isoformat(),
+                                    "entry_reason": "SMA Bullish Cross",
+                                })
+                                save_state(state)
                 elif why:
                     log.info(f"⚠️  Entry blocked — {why}")
 
@@ -867,15 +1252,25 @@ def main():
                     elif strategy_exit:
                         exit_reason = strategy_exit
 
+                if SENDS_ORDERS and state.get("exit_pending"):
+                    # An exit was decided on an earlier tick and its sell did
+                    # not fill. It is owed whatever the signal shows now.
+                    exit_reason = state["exit_pending"]["reason"]
+
                 if exit_reason:
                     log.info(f"🔴 SELL SIGNAL — {exit_reason} | chg={chg_pct:+.3f}% | Price=${price:.4f}")
-                    place_sell(state["shares"], price, exit_reason)
-                    record_trade(state, price, exit_reason)
-                    state.update({
-                        "position": "NONE", "entry_price": 0.0,
-                        "shares": 0.0, "entry_time": None,
-                    })
-                    save_state(state)
+                    if SENDS_ORDERS:
+                        # A real order. The position closes only on a fill,
+                        # and the ledger row is written from that fill.
+                        close_position(state, price, exit_reason)
+                    else:
+                        place_sell(state["shares"], price, exit_reason)
+                        record_trade(state, price, exit_reason)
+                        state.update({
+                            "position": "NONE", "entry_price": 0.0,
+                            "shares": 0.0, "entry_time": None,
+                        })
+                        save_state(state)
                 else:
                     log.info(
                         f"Holding {state['shares']:.6f} {TICKER} | "

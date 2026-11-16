@@ -183,7 +183,10 @@ class AlpacaVenue(Venue):
 
         return self.client().submit_order(MarketOrderRequest(
             symbol=symbol,
-            qty=round(float(quantity), 6),
+            # Nine places, which is what Alpaca fills fractional shares to. At
+            # six, a position of 0.1336898 shares rounded up to 0.133690 and
+            # the sell asked for more than was held.
+            qty=round(float(quantity), 9),
             side=OrderSide.SELL,
             time_in_force=TimeInForce.DAY,
             client_order_id=client_order_id,
@@ -197,16 +200,85 @@ class AlpacaVenue(Venue):
         except Exception:
             return None
 
+    # ── What the real-order path needs, and the lenient lookup above cannot
+    #    give it: "the venue says there is no such order" kept apart from "the
+    #    venue could not be asked". The first means nothing was placed. The
+    #    second means nothing is known, and treating it as the first is how a
+    #    filled order gets written off as never sent.
+
+    @staticmethod
+    def answered_no(error):
+        """True when the venue itself replied and refused (HTTP 4xx), as
+        opposed to a timeout or a dropped connection where no reply came."""
+        status = getattr(error, "status_code", None)
+        return isinstance(status, int) and 400 <= status < 500 and status not in (408, 429)
+
+    def find_order(self, client_order_id):
+        """The order with this client id, parsed, or None when the venue
+        answers that it has none. Raises when the venue cannot be asked."""
+        try:
+            order = self.client().get_order_by_client_id(client_order_id)
+        except Exception as error:
+            if getattr(error, "status_code", None) == 404:
+                return None
+            raise
+        return self.parse_response(order)
+
+    def cancel_order(self, order_id):
+        self.client().cancel_order_by_id(order_id)
+
+    def position_qty(self, symbol):
+        """Shares of `symbol` the account holds right now, as a Decimal:
+        0 when flat, negative when short. Raises when the venue cannot be
+        asked. Read from the full position list because the single-position
+        call reports "flat" as an error, the same way it reports an outage."""
+        for position in self.client().get_all_positions():
+            if str(getattr(position, "symbol", "")).upper() == symbol.upper():
+                qty = Decimal(str(position.qty))
+                side = getattr(position, "side", "")
+                if str(getattr(side, "value", side)).lower() == "short" and qty > 0:
+                    qty = -qty
+                return qty
+        return Decimal("0")
+
+    def open_orders(self, symbol):
+        """Orders for `symbol` still working at the venue, parsed."""
+        from alpaca.trading.requests import GetOrdersRequest
+        from alpaca.trading.enums import QueryOrderStatus
+
+        orders = self.client().get_orders(GetOrdersRequest(
+            status=QueryOrderStatus.OPEN, symbols=[symbol]))
+        # With the client id, so a caller can tell its own orders from anyone
+        # else's. This list lags: on 2026-11-16 the paper API still listed an
+        # order here a moment after reporting that same order CANCELED when
+        # asked about it directly. The direct answer is the one to believe.
+        return [{**self.parse_response(order),
+                 "client_order_id": str(getattr(order, "client_order_id", "") or "")}
+                for order in orders]
+
+    def endpoint(self):
+        """The base URL orders are sent to, so a caller can check paper
+        against live before it sends anything."""
+        url = getattr(self.client(), "_base_url", "")
+        return str(getattr(url, "value", url))
+
     def parse_response(self, response):
         def num(attr):
             value = getattr(response, attr, None)
             return Decimal(str(value)) if value not in (None, "") else Decimal("0")
 
+        def text(attr):
+            # alpaca-py's status and side are enums that are also strings.
+            # str() of one is "OrderStatus.FILLED", not "filled", so a status
+            # read that way never compared equal to anything. Take the value.
+            value = getattr(response, attr, None)
+            return str(getattr(value, "value", value) or "")
+
         filled_qty = num("filled_qty")
         avg_price = num("filled_avg_price")
         return {
-            "order_id": str(getattr(response, "id", "") or ""),
-            "status": str(getattr(response, "status", "") or "").upper(),
+            "order_id": text("id"),
+            "status": text("status").upper(),
             "filled_size": filled_qty,
             "filled_value": filled_qty * avg_price,
             # Commission-free: reported for interface symmetry, always zero.
