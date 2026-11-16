@@ -298,6 +298,18 @@ Stops, targets, trailing stop and risk limits are shared, so the two differ only
 in entry and strategy exit. An unrecognised value refuses to start rather than
 falling back silently.
 
+**Market trend gate (stocks v5).** No new position is opened while SPY's close
+on the last completed session is below the average of its last 50 completed
+session closes. It applies to every stock bot, SPY included, and to entries
+only: stops, targets and every other exit work as before. The state is worked
+out once a day from Alpaca's daily bars and logged as `Trend gate: ...`; a
+vetoed entry is logged as `Entry blocked` and recorded in the signal log with
+`blocked_by` `TREND_GATE`. If the closes cannot be fetched the state is
+unknown and entries are refused (`TREND_GATE_UNKNOWN`). 50 and SPY are the
+registered v5 terms and the defaults in code (`STOCK_TREND_GATE_DAYS`,
+`STOCK_TREND_GATE_SYMBOL`); changing either, or setting days to 0, voids the
+registration. `utils/market_gate.py` holds the rule and the reasons.
+
 **A stuck bot ends itself.** `pm2 status` saying "online" does not mean a bot
 is working: two stock bots sat blocked in a network read for a week in
 November 2026 and pm2 showed them online throughout. Two things now prevent

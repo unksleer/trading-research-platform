@@ -90,6 +90,24 @@ def verify(record):
     return record.get("seal") == _seal(record)
 
 
+def scope_field(record):
+    """
+    Which of a trade's timestamps decides whether it belongs to a registration.
+
+    The default, exit_time, is how every registration up to stocks v4 was
+    counted: a trade counts if it closed on or after the start date. That is
+    right when the run starts flat or the rules are unchanged from what opened
+    the position.
+
+    A registration can instead seal success_criteria.count_by = "entry_time".
+    Stocks v5 does, because it started with two positions open that v4 had
+    entered on days the v5 gate would have refused. Scoring their exits as v5
+    trades would grade the gate on entries it did not allow.
+    """
+    by = (record.get("success_criteria") or {}).get("count_by")
+    return "entry_time" if by == "entry_time" else "exit_time"
+
+
 def conclude(name, result, verdict, concluded=None):
     """
     Attach the outcome. Records whether the terms were altered en route.

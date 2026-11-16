@@ -102,11 +102,14 @@ def trades_for(reg, all_trades):
     2026-09-04, when the truth was 9 and 4 — the extra six were from the
     voided v1 and v2 runs, still sitting in the same CSV files.
     """
+    from utils import experiment
     started = reg.get("started") or ""
     symbols = {s.upper() for s in reg.get("symbols", [])}
     rows = all_trades.get(reg.get("market"), [])
+    # exit_time unless the registration seals count_by = entry_time.
+    when = experiment.scope_field(reg)
     return [r for r in rows
-            if (r.get("exit_time") or "") >= started
+            if (r.get(when) or "") >= started
             and (not symbols or r["_symbol"] in symbols)]
 
 

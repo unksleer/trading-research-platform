@@ -72,6 +72,15 @@ TRAILING_ACTIVATION_PCT = float(os.getenv(f"{TICKER}_TRAILING_STOP_ACTIVATION_PE
 MIN_VOLUME_RATIO = float(os.getenv(f"{TICKER}_MIN_VOLUME_RATIO", os.getenv("STOCK_MIN_VOLUME_RATIO", "0.0")))
 COOLDOWN_HOURS = float(os.getenv(f"{TICKER}_COOLDOWN_HOURS_AFTER_LOSS", os.getenv("STOCK_COOLDOWN_HOURS_AFTER_LOSS", "0.0")))
 
+# Market trend gate on new entries (stocks v5): no new position while the market
+# symbol's last completed session closed below the average of its last N
+# completed session closes. Exits are never gated. 50 and SPY are the registered
+# v5 terms (experiments/, DECISIONS.md 2026-11-10 and 2026-11-16), fixed before
+# the backtest and not tuned; changing either voids the registration. 0 = off,
+# which is v4.
+TREND_GATE_DAYS   = int(os.getenv("STOCK_TREND_GATE_DAYS", "50"))
+TREND_GATE_SYMBOL = os.getenv("STOCK_TREND_GATE_SYMBOL", "SPY").strip().upper()
+
 # Seconds the main loop may go without completing, on top of any sleep it has
 # announced, before the watchdog ends the process so pm2 can restart it.
 # 0 switches the watchdog off. Not a trading setting: it changes nothing about
@@ -314,6 +323,45 @@ def fetch_bars(ticker: str, n_bars: int = 100) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def fetch_market_closes():
+    """
+    [(session date in New York, close)] for the trend gate's market symbol:
+    daily IEX bars, adjusted like every other bar the bot reads. Enough
+    calendar days to hold twice the sessions the gate needs. Raises on any
+    failure; the gate turns that into "unknown, no entry".
+    """
+    from alpaca.data.requests import StockBarsRequest
+    from alpaca.data.timeframe import TimeFrame
+    from alpaca.data.enums import Adjustment, DataFeed
+
+    end = datetime.now(timezone.utc)
+    req = StockBarsRequest(
+        symbol_or_symbols=TREND_GATE_SYMBOL,
+        timeframe=TimeFrame.Day,
+        start=end - timedelta(days=TREND_GATE_DAYS * 3 + 30),
+        end=end,
+        adjustment=Adjustment.ALL,
+        feed=DataFeed.IEX,
+    )
+    df = _data_client().get_stock_bars(req).df
+    if isinstance(df.index, pd.MultiIndex):
+        df = df.xs(TREND_GATE_SYMBOL, level=0)
+    stamps = pd.DatetimeIndex(df.index).tz_convert("America/New_York")
+    return [(stamp.date(), float(close)) for stamp, close in zip(stamps, df["close"])]
+
+
+_TREND_GATE = None
+
+
+def trend_gate():
+    global _TREND_GATE
+    if _TREND_GATE is None:
+        from utils.market_gate import TrendGate
+        _TREND_GATE = TrendGate(fetch_market_closes, days=TREND_GATE_DAYS,
+                                symbol=TREND_GATE_SYMBOL, log=log)
+    return _TREND_GATE
+
+
 def latest_bar_time(df: pd.DataFrame) -> str:
     """
     The timestamp of the newest bar, as the signal log's candle_time.
@@ -361,7 +409,7 @@ def compute_indicators(df: pd.DataFrame) -> dict:
     }
 
 
-def describe_decision(ind, position, should_enter, why, exit_reason):
+def describe_decision(ind, position, should_enter, why, exit_reason, blocked_by=None):
     """
     What the bot decided this candle, in the shared signal-log shape.
 
@@ -377,6 +425,10 @@ def describe_decision(ind, position, should_enter, why, exit_reason):
                    and ind["sma_short"] > ind["sma_long"])
         raw = "BUY" if crossed else "HOLD"
         blocked = "RSI" if (crossed and not should_enter) else ""
+    if blocked_by:
+        # The strategy wanted in and something above it said no (the trend
+        # gate). raw_signal stays BUY so the blocked opportunity is on record.
+        blocked = blocked_by
     return {
         "raw_signal": raw,
         "final_signal": "BUY" if should_enter else ("SELL" if exit_reason else "HOLD"),
@@ -637,6 +689,11 @@ def main():
         log.info(f"  SMA {SMA_SHORT}/{SMA_LONG} | SL={STOP_LOSS_PCT}% | TP={TAKE_PROFIT_PCT}%")
     log.info(f"  RSI filter: [{RSI_MIN}–{RSI_MAX}] | Trade size: ${TRADE_AMOUNT}")
     log.info(f"  Base URL: {BASE_URL}")
+    if TREND_GATE_DAYS > 0:
+        log.info(f"  Trend gate: no new entry while {TREND_GATE_SYMBOL}'s last close is "
+                 f"below its {TREND_GATE_DAYS}-session average")
+    else:
+        log.warning("  Trend gate: OFF (STOCK_TREND_GATE_DAYS=0)")
     log.info("=" * 60)
 
     if not API_KEY or not SECRET_KEY:
@@ -701,11 +758,24 @@ def main():
             # ── Strategy logic ────────────────────────────────────────────────
             if state["position"] == "NONE":
                 should_enter, why = entry_signal(ind)
+
+                # Market trend gate (v5). Asked on every flat tick, not only
+                # when a signal fires: the answer is worked out once a day and
+                # kept, so the decision at the moment of a signal does not
+                # hang on a network call made at that moment. It can only
+                # veto an entry; it never creates one and never touches exits.
+                gate_block = None
+                if TREND_GATE_DAYS > 0:
+                    gate = trend_gate().state()
+                    if should_enter and not gate.allows_entry:
+                        should_enter = False
+                        gate_block = gate.blocked_by
+                        why = f"{why}; {gate.describe()}"
                 try:
                     signal_logger().record(
                         latest_bar_time(df), price, state["position"],
                         describe_decision(ind, state["position"], should_enter,
-                                          why, None))
+                                          why, None, blocked_by=gate_block))
                 except Exception as sig_err:
                     log.warning(f"Could not record signal decision: {sig_err}")
 

@@ -756,6 +756,12 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             reg = regs.get(market, {})
             started = reg.get("started") or ""
             symbols = {x.upper() for x in reg.get("symbols", [])}
+            # Same scoping as the observer: by exit time unless the
+            # registration seals count_by = entry_time (stocks v5 does).
+            # (utils.experiment.scope_field, restated here because the import
+            # above is allowed to fail.)
+            scope = ("e" if (reg.get("success_criteria") or {}).get("count_by") == "entry_time"
+                     else "t")
             rows = []
             for path in glob.glob(os.path.join(root, pattern)):
                 try:
@@ -765,6 +771,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                                 continue
                             try:
                                 rows.append({"t": r["exit_time"],
+                                             "e": r.get("entry_time") or "",
                                              "s": (r.get("ticker") or r.get("pair") or "").upper(),
                                              "usd": float(r.get("pnl_usd") or 0.0),
                                              "pct": float(r.get("net_pct") or 0.0)})
@@ -772,7 +779,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                                 continue
                 except OSError:
                     continue
-            since = [r for r in rows if r["t"] >= started and (not symbols or r["s"] in symbols)]
+            since = [r for r in rows if r[scope] >= started and (not symbols or r["s"] in symbols)]
             # Cumulative net over the registration window, oldest first. The
             # only view with a time axis — how you see whether a change
             # helped — and until now it existed only for crypto, inside the
