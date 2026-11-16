@@ -19,6 +19,100 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-16 — Trend-hold study result: it passes its terms and is still the worst of the three; holding won
+
+**Run** on the terms fixed in the entry below, committed (69be2be) before the
+run. `backtest_trend_hold.py`, the frozen cache, the calm six, sessions
+2021-06-01 to 2026-09-03 (1,319), six $100 slots, 0.10% slippage a side, all
+three marked at every close. Backtested, not measured.
+
+**1. The three, side by side.**
+
+```
+            net          worst drawdown   up years | 2021     2022     2023     2024     2025     2026
+HOLD     +$443.22 +73.9%   $119.16 19.9%    5/6    | +60.91   -20.43   +18.32  +166.84  +125.35   +92.23
+DIP (v5) +$130.67 +21.8%    $42.76  7.1%    4/6    | +10.57    -2.63    -1.59   +30.24   +34.50   +59.57
+T200     +$133.04 +22.2%   $109.95 18.3%    4/6    | +41.72   -66.28   -32.43  +134.72    +4.21   +51.10
+
+to end 2023 / after:   HOLD +$58.80 / +$384.41    DIP +$6.36 / +$124.31    T200 -$56.98 / +$190.03
+T200 trades  n=170  win 22.4%  avg win +9.24%  avg loss -1.65%  winners 5.59x losers
+DIP trades   n=324  win 77.8%  avg win +1.51%  avg loss -3.53%  winners 0.43x losers
+```
+
+**2. Verdict on the fixed terms: PASS, all five.** Net above zero: yes. Net
+above DIP: yes. Drawdown smaller than HOLD: yes. Average win at least 2x
+average loss: yes (5.59x). Up in 4 of 6 years: yes.
+
+**3. The pass should not be read as a win. The terms had no margins, and that
+was a mistake in how I wrote them.**
+
+- "Net above DIP" passed by $2.37 on $600 over five years. That is a tie.
+- "Drawdown smaller than HOLD" passed at $109.95 against $119.16. The one
+  thing a trend rule is supposed to buy is a smaller drawdown, and it bought
+  almost none: 18.3% against 19.9%.
+- Put plainly, T200 made what dip-buying made with two and a half times the
+  drawdown, and a third of what holding made with nearly the same drawdown.
+  Each of the other two beats it on something; it beats neither on anything
+  that matters.
+- It lost $98.70 across 2022 and 2023, the two years it was meant to protect.
+  Holding lost $2.11 over the same two years and dip-buying $4.22.
+
+**4. Why. Calm stocks are the wrong place for a trend rule.** Staples,
+healthcare and utilities spent 2022 and 2023 drifting back and forth across
+their own 200-session average. Each crossing is a small loss: 170 trades, 132
+of them losers. The shape claim is true, winners were 5.6 times losers, but it
+won 22% of the time and the two cancel. By ticker it worked where there was a
+real trend and failed where there was not:
+
+```
+       HOLD      dd   | DIP      dd     n | T200      dd     n  win  in market
+XLP   +37.23  18.80   |  +8.97  11.69  47 |  -9.43  30.18   36  17%   77%
+JNJ   +88.99  20.54   | +15.83  18.07  58 | +36.98  52.57   38  16%   64%
+PG    +23.47  30.46   | +29.47  17.75  54 | -38.90  57.83   34  12%   61%
+SPY   +96.03  28.63   | +29.48  12.96  61 | +58.58  23.43   16  50%   79%
+XLU   +53.95  31.37   |  +2.40  16.36  48 | +15.04  32.76   28  32%   74%
+WMT  +143.54  70.29   | +44.52  11.08  56 | +70.77  53.49   18  28%   81%
+```
+
+**5. What the comparison says about dip-buying, which was not the question.**
+On the calm six it is the steady one: +21.8% with a worst drawdown of 7.1%,
+and its two losing years cost $2.63 and $1.59. It is in a position about a
+third of the time. It made 29% of what holding made.
+
+**6. Nothing here beat simply holding.** +$443 against about +$130 for either
+way of trading, on a drawdown of 20%. This window is mostly a rising market
+with one bad year, which is the best case for holding, and the calm six fell
+only 3% as a group in 2022. A longer or deeper fall is where the other two
+would be expected to earn their keep, and this data has none.
+
+**Reported, not used to decide.**
+
+```
+calm six   T50   +$26.37   dd $79.74   up 3/6   n=305  win 26%  winners 3.07x
+calm six   T100  +$63.69   dd $117.01  up 3/6   n=239  win 23%  winners 3.98x
+jumpy six  HOLD +$305.46 dd 55.7% | DIP -$34.95 dd 18.0% | T200 +$149.12 dd 46.2%
+all twelve HOLD +$748.68 dd 32.5% | DIP +$95.72 dd  9.9% | T200 +$282.17 dd 25.6%
+```
+
+Shorter averages were worse, which is what whipsaw looks like. On the jumpy
+six the trend rule beat dip-buying by $184, the reverse of the calm six: a
+trend rule suits stocks that trend and dip-buying suits stocks that do not.
+That is a description after the fact, not a tested claim.
+
+**What this means for the plan.** No reason to change the live stages from
+dip-buying on the calm six: of the two ways to trade these stocks it is the
+steadier, and steadiness is the stated aim. The larger point for Lee is
+section 6. If the aim is the most money from these six stocks, the backtest's
+answer is to hold them, and trading them is a choice to take a smaller return
+for smaller swings and less time exposed.
+
+**Not changed.** v5, the bots, the registration, the live plan.
+
+**Tests.** 22 new in `tests/test_trend_hold_study.py`, on made-up prices,
+written and passing before the run.
+
+---
+
 ## 2026-11-16 — Trend-hold study: the rule, the comparison and the pass/fail test, fixed before the run
 
 **Asked:** Lee, "how do the consistent few do it", then "Yes, test it". Two
