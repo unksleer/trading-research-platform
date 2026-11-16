@@ -19,6 +19,117 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-16 — One-stock study result: a stock cannot be picked from its past, but the calm six carry the whole basket
+
+**Run** on the terms fixed in the entry below, committed (8b47871) before the
+run. `backtest_one_stock.py`, the frozen gate-backtest cache, trend gate on,
+$100 a trade, 0.10% slippage a side. Backtested, not measured.
+
+**1. Every ticker, calmest first.** Volatility is measured on SELECT.
+
+```
+       vol  | SELECT 2021-2023              | CONFIRM 2024-01-01 to 2026-09-03      | holding,
+            |  n   win    PF     net        |  n   win    PF     net     avg trade  | CONFIRM
+XLP   0.86% | 23  73.9%  1.35   +$5.59      | 30  73.3%  1.37   +$6.09    +0.20%    |  +25.2%
+JNJ   1.02% | 33  66.7%  1.04   +$1.32      | 31  74.2%  1.61  +$16.16    +0.52%    |  +88.0%
+PG    1.10% | 27  63.0%  0.64  -$11.53      | 33  81.8%  2.58  +$33.34    +1.01%    |   +6.2%
+SPY   1.10% | 35  88.6%  2.12  +$17.98      | 35  88.6%  2.76  +$23.71    +0.68%    |  +68.5%
+XLU   1.14% | 27  77.8%  1.06   +$1.85      | 29  75.9%  1.29   +$7.79    +0.27%    |  +44.1%
+WMT   1.28% | 28  71.4%  1.58  +$12.40      | 34  82.4%  2.41  +$32.85    +0.97%    | +109.9%
+QQQ   1.50% | 43  67.4%  0.93   -$4.45      | 41  82.9%  1.52  +$19.68    +0.48%    |  +80.7%
+SLV   1.72% | 44  63.6%  0.81  -$15.87      | 46  65.2%  0.92   -$6.65    -0.14%    | +179.7%
+DIS   1.90% | 43  69.8%  1.07   +$4.52      | 34  70.6%  0.89   -$5.25    -0.15%    |  +21.4%
+LPL   2.54% | 38  63.2%  0.94   -$5.13      | 50  56.0%  0.63  -$46.69    -0.93%    |  -35.8%
+META  2.97% | 38  63.2%  0.86  -$10.37      | 46  76.1%  1.59  +$34.84    +0.76%    |  +77.9%
+TSLA  3.71% | 60  63.3%  0.79  -$25.49      | 67  76.1%  1.41  +$42.51    +0.63%    |  +51.5%
+basket      | 439 68.6%  0.95  -$29.19      | 476 74.6%  1.27 +$158.39    +0.33%    |
+```
+
+**2. The choices, from SELECT only.** S1 eligible: DIS, JNJ, META, QQQ, SPY,
+WMT; best per-trade Sharpe: **SPY**. S2 least volatile: **XLP**. H: stable six
+XLP, JNJ, PG, SPY, XLU, WMT; jumpy six QQQ, SLV, DIS, LPL, META, TSLA.
+
+**3. Verdicts on the fixed terms.**
+
+```
+S1 SPY  n=35  win 88.6%  avg win +1.20%  avg loss -3.37%  PF 2.76  net +$23.71   2024 +$4.43  2025 +$11.58  2026 +$7.70
+        20+ trades yes | net > 0 yes | PF >= 1.20 and >= basket 1.27 yes | positive in 2 of 3 years yes   => PASS
+S2 XLP  n=30  win 73.3%  avg win +1.02%  avg loss -2.05%  PF 1.37  net  +$6.09   2024 -$0.68  2025  +$2.41  2026 +$4.35
+        20+ trades yes | net > 0 yes | PF >= 1.20 and >= basket 1.27 yes | positive in 2 of 3 years yes   => PASS
+H       stable six  SELECT n=173 PF 1.18 +$27.60  | CONFIRM n=192 win 79.7% PF 1.94 +$119.95
+        jumpy six   SELECT n=266 PF 0.88 -$56.79  | CONFIRM n=284 win 71.1% PF 1.08  +$38.44
+        stable net > 0 yes | stable PF >= jumpy PF + 0.10 yes (1.94 vs 1.08)                              => PASS
+PERSISTENCE  rank correlation of average trade, SELECT against CONFIRM, twelve tickers: -0.09             => does NOT carry forward
+```
+
+**4. How to read the two single-stock passes: they are worth little.**
+
+- Persistence is -0.09 against a bar of 0.50. A ticker's result on 2021-2023
+  says nothing about its rank on 2024-2026. PG was the worst of the calm six
+  on SELECT and the best of all twelve on CONFIRM; TSLA was last on SELECT and
+  near the top on CONFIRM. By the reading fixed beforehand, the SPY pass is
+  one draw and is not evidence that picking a stock works.
+- After the fact: 9 of the 12 tickers pass the same four terms on CONFIRM.
+  2024-2026 was a good stretch for this strategy on nearly everything (basket
+  PF 1.27 against 0.95 on SELECT), so the bar was low. A pick at random would
+  have passed three times in four.
+- XLP passed on $6.09 in 2.7 years, $2.28 a year at $100 a trade, ninth of
+  twelve by average trade. "Passed" and "worth trading" are different things.
+- What can be said for SPY, as description: it is the only ticker that is the
+  gate's own market, it won 31 of 35 in each window, and it is one of three
+  tickers (SPY, WMT, XLP, all calm) that pass the four terms on SELECT too.
+  Its t on CONFIRM is about 2.0 on 35 trades.
+
+**5. The finding that holds up: calm against jumpy.** This split is made from
+volatility, which is known in advance and does not use any strategy result,
+and it has several hundred trades on each side.
+
+```
+whole test 2021-01-04 to 2026-09-03
+stable six  n=365  win 77.0%  avg win +1.53%  avg loss -3.35%  PF 1.52  net +$147.55  avg +0.40%
+jumpy six   n=550  win 68.2%  avg win +2.51%  avg loss -5.47%  PF 0.98  net  -$18.35  avg -0.03%
+by year, PF:  stable 1.58  1.02  0.92  1.66  1.86  2.45   (2021 to 2026)
+              jumpy  1.10  0.64  0.83  1.18  1.36  0.80
+```
+
+- The basket's whole backtested profit, +$129.20, is the calm six (+$147.55)
+  less the jumpy six (-$18.35). The jumpy six make 60% of the trades and lose.
+- Same direction in both windows. On CONFIRM the stable six's per-trade
+  Sharpe is 0.247 on 192 trades, t about 3.4.
+- It does not rest on LPL. With LPL left out the jumpy five are PF 0.87 on
+  SELECT and 1.25 on CONFIRM, still under the stable six's 1.18 and 1.94.
+- It is a group result, not a ranking. Within the twelve, volatility against
+  CONFIRM average trade is only -0.18: META and TSLA did well in 2024-2026.
+  The calm group is better mostly because its losses are smaller (-3.35%
+  against -5.47%) at a higher win rate, not because every calm stock beats
+  every jumpy one.
+- The calm six still lost a little in 2023 and made $1 in 2022.
+- The volatility ranking was measured on 2021-2023, so only the CONFIRM half
+  of this table is strictly out of sample. The ranking itself is not
+  surprising: staples, healthcare, utilities, a retailer and the index.
+
+**6. Against simply holding.** Every pick lost to holding the stock it traded.
+SPY: +23.7% on one $100 position against +68.5% held, with the money in a
+position about a third of the time. $8.87 a year at $100 a trade, 13 trades a
+year. The strategy is not a way to beat owning the stock; at best it is a
+smaller return for much less time exposed.
+
+**What this means for the idea.** "Pick the one stock that reads
+consistently" is not supported: which stock did best does not persist.
+"Trade the stable ones" is supported, as a backtest: the calm group is where
+the edge is. If it has to be one stock for a live pilot, SPY is the
+defensible choice, for what it is (the gate's own market, the calm group, the
+same result in both windows), not because it won a contest. One stock at 13
+trades a year takes years to judge live.
+
+**Not changed.** v5 runs the registered twelve; dropping the jumpy six would
+be a change to entries and would void it. A calm-six basket is a candidate
+for the next registration or for a live pilot design, Lee's call.
+
+**Tests.** 11 new in `tests/test_one_stock_study.py`; full suite 599 passed, 2 skipped.
+
+---
+
 ## 2026-11-16 — One-stock study: the choosing rule and the pass/fail test, fixed before the run
 
 **Asked:** Lee, about live trading: "really start to focus on maybe 1 stock,
