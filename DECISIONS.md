@@ -19,6 +19,69 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-16 — Trend-hold study: the rule, the comparison and the pass/fail test, fixed before the run
+
+**Asked:** Lee, "how do the consistent few do it", then "Yes, test it". Two
+habits of the traders who last came up that this project has never tested:
+trade with the trend, and let winners be bigger than losers. Every strategy
+run here buys a dip and sells a small bounce (average win about +2%, average
+loss about -5%, so it has to be right 71% of the time). This entry and
+`backtest_trend_hold.py` are committed before the script is run. Only its unit
+tests, on made-up prices, have been run. The result goes in a separate entry
+above; this one is not edited afterwards.
+
+**The rule, T200.** For each stock separately, once a day: after a session
+closes, compare its close with the average of its last 200 session closes,
+that one included. At or above: be in the stock. Below: be out. Act at the
+next session's open.
+
+**Why 200.** It is the standard published trend rule (the ten-month average)
+and was not chosen from this data. 50 and 100 sessions are reported as
+sensitivity and never used to decide.
+
+**What it is run on.** The calm six fixed by the one-stock study before this
+was thought of: XLP, JNJ, PG, SPY, XLU, WMT. $100 a position, 0.10% slippage a
+side, the frozen one-minute IEX cache. Sessions 2021-06-01 to 2026-09-03: the
+data starts in July 2020 and 200 sessions have to exist first, and every
+approach is measured on that same window.
+
+**The comparison.** Same six stocks, same window, same costs, one $100 slot a
+stock, all three marked to market at every session's close:
+
+- HOLD: buy at the first open, never sell.
+- DIP: the v5 strategy as registered.
+- T200: the rule above.
+
+**T200 passes only if all five hold, for the six together:**
+
+1. Net P&L above zero.
+2. Net P&L above DIP's.
+3. Largest drawdown smaller than HOLD's.
+4. Average winning trade at least 2 times the average losing trade. This is
+   the "winners bigger than losers" claim itself.
+5. Up in at least 4 of the 6 calendar years 2021 to 2026.
+
+**Not a pass term, and reported first: return against HOLD.** A trend rule is
+out of the market part of the time, so in a rising market it is expected to
+make less than holding. What it is supposed to buy is a smaller drawdown.
+Whether that trade is worth it is Lee's judgement and not something a test
+can settle. Said now so that "it made less than holding" is not later read as
+a surprise or as a failure of the test.
+
+**Reported, never used to decide:** each ticker, T50 and T100, the jumpy six
+and all twelve, the split into 2021-2023 and 2024-2026.
+
+**Known limits, before the run.** One window of 5.3 years with one bear market
+in it (2022). No selection step, so no confirmation window either: the rule
+and the stocks were fixed from outside, and the whole window is the test. A
+200-session rule makes few trades (a handful a stock), so term 4 rests on a
+small number of trades. Backtested at assumed costs; nothing here is a live
+result.
+
+**Not touched:** v5, the bots, the registration.
+
+---
+
 ## 2026-11-16 — One-stock study result: a stock cannot be picked from its past, but the calm six carry the whole basket
 
 **Run** on the terms fixed in the entry below, committed (8b47871) before the
