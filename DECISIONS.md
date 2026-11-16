@@ -19,6 +19,81 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-16 — One-stock study: the choosing rule and the pass/fail test, fixed before the run
+
+**Asked:** Lee, about live trading: "really start to focus on maybe 1 stock,
+one that could consistently be read and stable", then "Yes, run it" to testing
+that on the backtest data. This entry and `backtest_one_stock.py` are committed
+before the script is run in anything but `--check` mode. The result goes in a
+separate entry above; this one is not edited afterwards.
+
+**Why a rule is needed before looking.** v4's ten live weeks hinted that the
+steady names worked and the jumpy ones did not (WMT +$8.28, DIS +$6.63 against
+SLV -$12.58, QQQ -$5.12). That is about four trades a ticker. Picking the best
+of twelve after seeing them is the mistake the registrations exist to stop:
+one of twelve always looks best.
+
+**What has and has not been seen.** The 2026-11-10 gate run printed results by
+ticker for the whole test window. They were "reported, never used to choose"
+and are not in this log. They have not been looked at in writing this entry;
+the script's `--check` mode prints only the pooled basket line, which matched
+the published one (915 trades, 71.7%, PF 1.10, +$129.20). Every choice below
+is mechanical, so a rule cannot have been bent to a result even by someone who
+had seen them.
+
+**Data and simulator.** The frozen cache and the minute-by-minute replay of
+the 2026-11-10 gate backtest, with the v5 trend gate on, $100 a trade, 0.10%
+slippage a side.
+
+**Two windows.** Choose on SELECT, judge on CONFIRM.
+
+- SELECT: entries 2021-01-04 to 2023-12-31.
+- CONFIRM: entries 2024-01-01 to 2026-09-03. It stops before the live weeks
+  that prompted the idea.
+
+**Three questions.**
+
+- **S1, the best single stock.** The ticker with the highest per-trade Sharpe
+  on SELECT, among those with at least 25 trades there and a positive net in
+  at least two of 2021, 2022, 2023. If none qualifies there is no candidate.
+- **S2, the most stable single stock.** The ticker with the lowest volatility
+  on SELECT (standard deviation of daily close-to-close returns). Chosen
+  without any strategy result.
+- **H, stable against jumpy.** The six least volatile tickers on SELECT against
+  the six most volatile.
+
+**A single stock (S1 or S2) passes on CONFIRM only if all four hold:**
+
+1. At least 20 trades.
+2. Net P&L above zero.
+3. Profit factor at least 1.20, and at least the gated basket's over the same
+   window. One stock gives up the basket's spread of risk; it has to be
+   clearly better per trade to be worth that.
+4. Net P&L above zero in at least two of 2024, 2025, 2026.
+
+**H passes** if on CONFIRM the stable six have a net above zero and a profit
+factor at least 0.10 above the jumpy six.
+
+**Persistence, the guard on S1.** Across the twelve tickers, the Spearman rank
+correlation between average return per trade on SELECT and on CONFIRM. At 0.50
+or more (about the 5% level for twelve), per-ticker results carry forward.
+Below it, an S1 pick that happens to pass is one draw from twelve and is not
+evidence that picking a stock works.
+
+**Reported, never used to decide:** every ticker on both windows, each pick
+against simply holding that stock, dollars a year at $100 a trade, worst
+trade, longest losing run, the pick's rank among the twelve on CONFIRM.
+
+**What a pass would and would not mean.** A pass says the pick held up on
+2.7 years it was not chosen on, in a backtest at assumed costs. It is not a
+live result, and v4 had a passing backtest too. A fail on S1 with low
+persistence says the stock cannot be chosen from its own past results. A fail
+on H says "stable" is not what separates the winners.
+
+**Not touched:** v5, the bots, the registration. This is a study on old data.
+
+---
+
 ## 2026-11-16 — Dashboard restarted for v5; its panel was putting v4's open positions on v5
 
 **Asked:** Lee, "Restart dashboard", so the registration panel counts v5
