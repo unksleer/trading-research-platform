@@ -19,6 +19,159 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-16 — The stock bots' real-order path: rebuilt, tested, and run against Alpaca's paper account. Nothing is started
+
+**Asked:** by the session planning Lee's staged live pilot: make
+`stock_bot.py`'s order path safe enough for a small pilot and prove it with
+real orders to Alpaca's PAPER account. Code and tests only, on branch
+`claude/epic-bartik-5c99b0`. No pm2 process was started, stopped or restarted.
+Not merged, not pushed. No order went to the live endpoint. `.env` was linked
+into the worktree for the tests and the paper orders and not read or printed.
+
+**What was wrong. Each checked in the code before it was changed.**
+
+1. "Paper" sent no order at all. `place_buy` and `place_sell` logged, emailed
+   and returned; the ledger recorded the signal price. The order path had
+   never run, even against the paper API.
+2. A live sell that failed was caught and logged, and the loop then recorded
+   the trade and set the position to NONE. Shares at the broker, bot flat.
+3. A live buy returned a share count worked out from the signal price and
+   stored the signal price as the entry. The fill was never read.
+4. Sells had no client order id and no journal entry.
+5. `live_trading_setup.md` covers the retired Coinbase bots only.
+
+Found on the way, same path:
+
+6. The order status was read with `str()`. alpaca-py's status is an enum, and
+   `str()` of it is `OrderStatus.FILLED`, so the parsed status was
+   `ORDERSTATUS.FILLED` and would never have matched anything.
+7. `submit_sell` rounded the quantity to six places. Alpaca fills to nine;
+   0.1336898 rounds up to 0.133690, more than is held.
+8. The order lookup returned "no such order" for any failure, an outage
+   included, and reconciliation logged that as "never reached the venue".
+9. A live bot would have shared the simulated bot's log file, order journal
+   and signal log for the same ticker (those names carried no mode), and read
+   the same key pair.
+
+**Built.**
+
+- `utils/broker_orders.py`: one order, start to finish. Written to a journal
+  with a client order id before it is sent; asked about every second until
+  Alpaca says filled, cancelled, expired or rejected; cancelled if still
+  working after 30 seconds, and the cancel waited on. What comes back is the
+  filled quantity and average price, from Alpaca.
+- State and ledger are written from that. A sell that does not fill leaves
+  the position open, records nothing, and is sent again on the next tick
+  whether or not the signal is still showing. A buy that does not fill opens
+  nothing and is not retried for 15 minutes. While any order has no final
+  answer, nothing else is sent.
+- Startup reconciliation: the endpoint is the right one for the mode, every
+  journalled order gets a final answer, any fill not yet in the state file is
+  written into it, and the broker's position in the ticker must equal the
+  state file's. If not, the bot exits with code 78 and sends nothing. The
+  same position check runs before every order.
+- **Broker paper**, a third mode: real orders to the paper account. It is a
+  separate script, `broker_paper_bot.py`, not a setting. No environment
+  variable and nothing in `.env` selects it, so `pm2 restart --update-env`
+  cannot turn a registered bot into an order sender. Because the dashboard,
+  the registry and `restart_bots.py` find bots by script, they do not see it.
+- Its files are its own: `broker_paper/state_stock_<t>.json`,
+  `completed_trades_stock_<t>.csv`, `order_journal_stock_<t>.json`,
+  `signal_log_stock-<t>.csv`, and `logs/stock_<t>_brokerpaper.log`. The
+  directory is outside the patterns the dashboard and observer read
+  (`state_*.json`, `completed_trades_*.csv`); in the project root a rehearsal
+  ledger would have been summed as live P&L. `broker_paper/` is in
+  `.gitignore`.
+- The ledger for an order-sending bot has the fill prices in `entry_price`
+  and `exit_price` and the signal prices beside them. `slippage_report.py`
+  prints fill minus signal per trade and the average against the assumed
+  0.10% a side.
+- Live (`ALPACA_PAPER=False`) now runs the same path, with its own file names
+  and its own keys (`ALPACA_LIVE_API_KEY`, `ALPACA_LIVE_SECRET_KEY`). Not run.
+- `live_trading_stocks.md`: start, check, restart, stop, what each
+  self-stop means, and what is missing before live.
+
+**Measured: real orders on the paper account, 12:47 to 12:50 ET.** Through the
+bot's real `main()`, one pass per start. Replaced: the strategy's decision
+(forced, so there was something to send), the gate's answer (entries are off
+today), the email, and where the files go (a scratch directory). Real: the
+clock, the bars, the order, the wait, the fill, the files, the reconciliation.
+
+```
+account before        flat, no order in its history, $100,000
+buy  $100 SPY         signal 742.83   filled 0.134587273 @ 742.938   fill minus signal +0.015%   final answer 0.4s after the intent
+restart, holding      "Reconciled ... 0.134587273 SPY held, state file agrees, no open orders"
+state file made wrong (0.123456789 SPY)    BROKER MISMATCH, exit 78, nothing sent
+sell 0.134587273 SPY  signal 742.83   filled @ 743.074               fill minus signal +0.033%   ledger P&L +$0.0183, from the fills
+buy  $50,000,000      refused: insufficient buying power             NOT_PLACED, nothing opened
+resting limit buy     still NEW after 3s, cancelled                  CANCELED, 0 filled
+order left working, process killed before the cancel, bot started    cancelled at startup, then reconciled and ran
+account after         flat, no open order; history: 2 fills, 2 cancelled
+```
+
+- `broker_paper_bot.py` itself was run by hand for 25 seconds, named
+  `spy-brokerpaper`, clean environment, not under pm2: it reconciled, ran one
+  tick, logged the gate (entries off) and wrote only its own files.
+- Two fills say nothing about slippage. For the record: cost +0.015% on the
+  buy, -0.033% on the sell (in favour), against 0.10% assumed. Paper fills are
+  at the quote with no queue; they are a floor on live cost.
+- Each journal or state write is fsynced, about 0.2s on this disk. The order
+  went out 0.4s to 0.6s after the decision.
+
+**Found by the real orders, not by the fake broker.** Alpaca's list of open
+orders trails an order's own status: an order that had just reported CANCELED
+was still in the list a moment later. As first written, the startup check
+would have taken the bot's own cancelled order for somebody else's and
+stopped. Now an order of the bot's own that has a final answer is not counted,
+and any disagreement is read again before it is believed. Both are tests. Also
+seen: the paper account has shorting enabled, so a second sell of a position
+already sold would have opened a short. The check before every sell is what
+prevents it.
+
+**The simulated bots are unchanged. How that is shown.**
+`tests/test_simulated_path_unchanged.py` drives the real `main()` through
+seven ticks (buy, hold, take profit, flat, buy, stop loss, closed market) and
+compares every state file, the ledger, every log line, every notification,
+signal row and sleep with (a) a recording made by running the file at 7d75a32
+and (b) that file itself, loaded from git. Identical. A simulated bot's file
+names are asserted to be what they were. During the run the venue, the
+trading client and the journal are tripwires. Seven deliberate breakages of
+the new code were each caught by a test, one of them a change to the
+simulated share rounding.
+
+**Changed on purpose.**
+
+- `test_journalling_failure_never_blocks_a_trade` is now `..._a_sell`. With
+  real orders a buy whose intent cannot be written down is not sent; a sell
+  still is. A full disk must not stand between a stop and its order, and must
+  not open a position nobody has a record of.
+- `backup.py` also backs up `broker_paper/` and the order journals.
+
+**Not done, not verified.**
+
+- No rehearsal bot is running. Starting one is Lee's call; the commands are
+  in `live_trading_stocks.md`. With the gate off-entries it would sit idle
+  until SPY closes back above its 50-session average.
+- pm2's `--stop-exit-codes 78` is in pm2 7.0.3's help and was not tried.
+- A partial fill, a lost reply and a full disk were tested against the fake
+  broker only. Alpaca gave none of them.
+- Nothing has run against the live endpoint. Live still has no entry script
+  of its own, no hand-close tool, and the dashboard has not been looked at
+  with a live or rehearsal bot. Day-trade and settlement rules for a small
+  live account are not checked; the $100,000 paper account never shows them.
+- The trade email was suppressed for the real orders. It is the same function
+  the simulated bots call.
+- Found, not changed: `last_exit_time` and `last_exit_pnl` are not saved to
+  the state file, so the 6-hour cooldown after a loss is forgotten on a
+  restart. True of the simulated bots today; left alone because v5 is sealed.
+- The dashboard shows nothing for a rehearsal bot. The log and
+  `slippage_report.py` are the only places to look.
+
+**Tests.** 71 new in four files; one existing test replaced. Full suite 692
+passed, 2 skipped, on top of 40948f5.
+
+---
+
 ## 2026-11-16 — Trend-hold study result: it passes its terms and is still the worst of the three; holding won
 
 **Run** on the terms fixed in the entry below, committed (69be2be) before the
