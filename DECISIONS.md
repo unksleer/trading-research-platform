@@ -19,6 +19,82 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-17 — Live pilot terms agreed by Lee: the calm six, in four stages by account size. Not authorised to start
+
+**Decided by Lee.** Three answers, in Lee's words:
+
+- 2026-11-16: live "in stages with 100, 250, 500, 1000 with a goal of
+  positive returns".
+- 2026-11-16, asked whether the stages trade SPY alone or the six calm
+  stocks: "Calm six".
+- 2026-11-17, asked whether the stage figures are per trade or the total in
+  the account: "Account total". Then, shown the terms below: "Yes, log them".
+
+**This entry authorises nothing.** No live account is funded, no live order
+has been sent, and live code has not been run. Funding the account, the first
+live order and every move to a larger stage each need Lee's go at the time.
+Stocks v5 stays sealed and simulated on the twelve bots; the pilot is
+separate processes and separate files, and its results are not v5's.
+
+**The terms.**
+
+- What trades: XLP, JNJ, PG, SPY, XLU, WMT, on the v5 rules as sealed (RSI
+  35/65, stop 5%, target 8%, trail 1.5/1.0, cooldown 6 hours after a loss,
+  SPY 50-session trend gate). No rule is changed for live.
+- Trade size: the account split equally across the six, rounded down to a
+  whole dollar, so every stock that signals can be bought and six open
+  positions never ask for more than the account holds.
+
+```
+stage   in the account   per trade   one stop-out (5%)   five stop-outs
+  1         $100            $16           $0.80              $4.00
+  2         $250            $41           $2.05             $10.25
+  3         $500            $83           $4.15             $20.75
+  4       $1,000           $166           $8.30             $41.50
+```
+
+- Moving up a stage: after 20 closed trades at the stage, with a net profit
+  on real fills and no bot faults. Then Lee decides; it is not automatic.
+- Pausing: if a stage's closed trades are behind by five stop-outs (about 4%
+  of the account at every stage), the bots stop buying and the stage is
+  reviewed with Lee before anything resumes.
+
+**What to expect, said to Lee before the yes.** These are from the backtest
+(one-stock study, 2026-11-16: calm six, six $100 slots, 2021-01-04 to
+2026-09-03, +$147.55 on 365 trades, PF 1.52, 0.10% a side assumed). Backtested,
+not measured.
+
+- About 4% a year on the money set aside: roughly $4 a year at stage 1 and
+  $43 a year at stage 4, if live matches the backtest. About $0.07 a trade at
+  $16.
+- About 64 trades a year across the six, so 20 closed trades is three to four
+  months, longer while the trend gate has entries off. All four stages is
+  more than a year.
+- At these sizes the stages test that the bots work with real money and that
+  fills match the backtest's assumed cost. They are not a way to make money
+  yet. Simply holding the six made about three times as much over the same
+  years (trend-hold study, 2026-11-16).
+
+**Left open. To be made exact when stage 1 is set up, before any order.**
+
+- "No bot faults" is not defined yet. Intended: no stop on a broker mismatch,
+  no order left without a final answer, no trade missing from the ledger.
+- 20 trades is a small sample. A net profit over 20 trades does not show the
+  strategy works; a five-stop-out loss does not show it fails. The count is
+  what Lee accepted as the pace, not a statistical test, and no pass or fail
+  claim about the strategy should be made from one stage.
+- Whether a stage's 20 trades and its loss limit count by entry or by exit,
+  and how a position open at a stage change is carried, are not written.
+- The trade size is fixed per stage, not recomputed from the balance.
+- $16 orders are fractional-share orders. The rehearsal on the paper account
+  runs at $100 a trade; fills at $16 have not been looked at.
+- One question for Alpaca before funding: good-faith violations on an account
+  under $2,000 (entry below).
+- Still to build: the live entry script, the hand-close tool and the
+  dashboard view (in progress on `claude/epic-bartik-5c99b0`).
+
+---
+
 ## 2026-11-17 — A rehearsal bot is running on Alpaca's paper account (SPY). pm2's stop flag tried. Small-account rules looked up
 
 **Asked:** by Lee, 2026-11-17 ("let do them all"): start one rehearsal bot on
