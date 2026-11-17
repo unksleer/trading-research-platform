@@ -19,6 +19,169 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-17 — Live gets its own way in, a hand-close tool, and a dashboard panel for the bots that send orders. Nothing is started; live is still not authorised
+
+**Asked:** by Lee, 2026-11-17 ("let do them all"), through the session
+planning the staged live pilot: build the three things the order-path entry
+of 2026-11-16 listed as missing before live. Code and tests only, on branch
+`claude/epic-bartik-5c99b0`, on top of `f095912`. No pm2 process was started,
+stopped, restarted or deleted, including `dashboard` and `spy-brokerpaper`.
+Nothing in the main checkout's `broker_paper/` or `logs/` was touched. Not
+merged, not pushed. No order went to the live endpoint. `.env` was linked into
+the worktree for the tests and the paper orders, not read or printed, and the
+link removed.
+
+**1. Live had the weakness broker paper was built to avoid.** A stock bot went
+live when `ALPACA_PAPER` was false. Every bot reads that variable from `.env`,
+and a `pm2 restart --update-env` copies it in from the calling shell. One
+stray line was all that stood between the twelve registered bots and
+real-money orders (they would have stopped for want of live keys, which is
+luck, not design).
+
+- `stock_bot.py` now refuses to start with `ALPACA_PAPER=False`. A process
+  whose script is `stock_bot.py` can only simulate. Tried from the command
+  line: it exits 1 with the reason before it opens a file.
+- `live_bot.py` is the one way in. Ticker, trade size and the words
+  `--real-money` on its command line; no defaults; nothing read from the
+  environment. It writes what the command line said over `STOCK_TICKER`,
+  `TRADE_AMOUNT_USD` and `ALPACA_PAPER` before `stock_bot` loads, and the
+  `.env` loader leaves those three alone, so neither a leaked shell nor `.env`
+  can change what a live bot trades or how much. pm2 keeps arguments across
+  restarts.
+- A hard limit of $166 a trade (`LIVE_MAX_TRADE_USD`), checked in
+  `live_bot.py` and again inside `stock_bot.py`. That is stage 4's trade size
+  under the terms Lee agreed the same day (entry below: $1,000 in the account
+  across six stocks). It was first written as $1,000, when the stages were
+  still read as possibly per trade, and lowered when the terms were logged.
+  Only the calm six may be traded live (`LIVE_TICKERS`). The process must be
+  named `<ticker>-live`. Raising either limit is an edit to
+  `utils/execution_mode.py`, which is the point.
+- No stage mechanism was built. The limit is a ceiling, not a stage check:
+  the script takes the trade size it is told, and `--usd 166` would start on
+  a $100 account. Which stage is running, and every move between stages, is
+  Lee's decision at the time, as the terms say.
+- Live files moved to a folder of their own, `live/`, as rehearsal files are
+  in `broker_paper/`. In the project root, as they were to be, a live ledger
+  would have gone into the dashboard's old "Live Realized PnL" card, and a
+  live position would have been added to the v5 registration's unrealised
+  P&L: `build_pnl_by_market` takes every stock position in the positions
+  list, and that list is built from `state_*.json` in the root. Live has
+  never run, so there was nothing to move.
+
+**2. One process per bot.** Found while building the hand-close tool: a bot
+reads its state file and journal once and from then on trusts the copy in
+memory. Anything that changed the files underneath a running bot would be
+overwritten at its next save. So an order-sending bot now holds a lock for as
+long as it runs (`utils/run_lock.py`, a kernel lock on
+`<folder>/running_stock_<t>.lock`, gone when the process ends however it
+ends). A second copy of the same bot logs `ALREADY RUNNING` and exits 78
+without a request to the broker. A simulated bot takes no lock.
+
+**3. `close_position.py`.** One command that sells a rehearsal bot's whole
+position (`--live` for a live bot's) through the bot's own order path: written
+to the journal before it is sent, waited on, state and ledger written from the
+fill, ledger reason `Closed by hand`. It loads `stock_bot` in the bot's mode
+and calls the bot's own `reconcile_orders` and `close_position`, so there is
+no second order path to keep in step.
+
+- Without `--send` it is a dry run: it prints the state file's position, the
+  broker's, open orders, whether the market is open, and what it would send.
+- **The bot must be stopped first**, and the tool refuses otherwise: it takes
+  the bot's lock, and asks pm2 as well, because a bot started before the lock
+  existed does not hold it (`spy-brokerpaper` today).
+- It refuses, sending nothing and changing nothing, when the broker does not
+  hold exactly what the state file says, when the ticker has an open order
+  that is not the bot's, when the state file or journal cannot be read, when
+  the broker cannot be asked, and when the market is closed. It does not
+  write a `BROKER MISMATCH` line into the bot's log when it refuses.
+- An order of the bot's that never got its answer is settled first, as the
+  bot does at startup.
+- A sell that is sent and does not fill leaves the position open and the exit
+  owed in the state file, the same as the bot's own exits: the tool run again
+  finishes it, and so does the bot on its first tick.
+- Chosen against: a tool that is safe while the bot runs (the bot would have
+  to take requests from a file; more moving parts in the loop for a case that
+  `pm2 stop` covers).
+
+**4. The dashboard.** A new panel, "Order-Sending Bots", fed by its own
+endpoint (`/api/order_bots`, `utils/order_bots.py`, read-only). For each
+rehearsal and live bot: running, stopped, or stopped itself with the reason
+from the last CRITICAL line of its log; how long ago its log was written;
+position with the fill beside the signal price; the latest fills; realized
+P&L from fills; average cost against the signal price beside the 0.10% a side
+the backtests assume. Rehearsal and live are totalled separately and nothing
+is added to anything else. `/api/metrics`, which feeds every simulated and v5
+figure, is built without them, and the files are where no other reader looks.
+It takes effect when the dashboard is restarted, which is Lee's to do.
+
+**Run against Alpaca's paper account, 2026-11-17 15:13 to 15:14 New York.**
+XLP, not SPY: `spy-brokerpaper` is running on the same account and checks only
+SPY. Files in a scratch directory; the trade email suppressed.
+
+| Step | Result |
+|---|---|
+| Buy $100 XLP through the bot (entry forced) | Signal 91.59, filled 1.09221392 @ 91.548 |
+| `close_position.py`, dry run | Printed the position and the sell it would send; state, journal and ledger byte-identical after |
+| `--send` while another process held the bot's lock | Refused, "Stop it first", nothing sent |
+| `--send` against a state file claiming 0.5 shares | Refused, both figures shown, nothing sent, no line in the bot's log |
+| `--send` | Sold 1.09221392 @ 91.53, ledger row `Closed by hand`, P&L -$0.0197 from the fills |
+| The bot started again | Reconciled: 0 XLP held, state file agrees |
+| `--send` again | "Nothing to close" |
+| Dry run for SPY from the worktree, read-only | Refused: "pm2 shows spy-brokerpaper online" |
+
+The account afterwards: flat, no open orders, two more XLP fills in its
+history. The live script's refusals were run from the command line too (no
+arguments; no `--real-money`; TSLA at $5,000, when the limit was still
+$1,000): exit 1 each time, before `stock_bot` is loaded.
+
+**Against a fake broker only:** everything about live (`live_bot.py` starting
+a bot, the live order path, `close_position.py --live`); a hand close that is
+rejected, cancelled, part filled or left unanswered; a hand close of a
+position whose exit the bot already owed; the lock stopping a second copy of
+the bot, and a killed process giving the lock up (a real second process, no
+broker).
+
+**Tests.** 103 new, in `tests/test_live_entry.py`, `test_run_lock.py`,
+`test_close_position.py` and `test_order_bots_dashboard.py`. One of them runs
+the page's own script in node against a real payload and checks what it
+draws, including that text from a log is escaped. Twenty-four deliberate
+breakages of the new code, one at a time, were each caught by a test. Full
+suite: 808 passed, 2 skipped. `tests/test_simulated_path_unchanged.py` passes
+unmodified: the simulated path is what it was.
+
+**Changed on purpose.**
+
+- `ALPACA_PAPER=False` on `stock_bot.py` now refuses instead of going live.
+  Nothing ran that way.
+- Live file names: `live/state_stock_<t>.json` and so on, not `_live` names in
+  the root. `slippage_report.py --live`, `backup.py` and `.gitignore` follow.
+- `slippage_report.py` marks a sell that was closed by hand, and its header
+  no longer runs "ticker" into "side".
+
+**Not verified.**
+
+- No order has gone to the live endpoint, and `live_bot.py` has never started
+  a bot. Whether pm2 hands it its arguments as written
+  (`pm2 start live_bot.py ... -- --ticker SPY --usd 100 --real-money`) was not
+  tried: no pm2 process was started.
+- The dashboard panel was not looked at in a browser. Its script was run in
+  node and its endpoint served from a copy on another port; the layout is
+  unseen.
+- `close_position.py` was run for real on a position bought a minute earlier
+  by a forced entry, not on one the strategy opened, and not on a rehearsal
+  bot under pm2 (stop, close, start).
+- Live trades will be $16 at stage 1. Everything run on the paper account,
+  here and in the rehearsal, is at $100.
+- The one question left for Alpaca in the entry of this date below
+  (good-faith violations on an account under $2,000) is still open.
+
+**Left alone.** The dashboard's old "Live Realized PnL" and "Live Unrealized
+PnL" cards are from the Coinbase era and will stay at zero: a live stock bot
+is shown in the new panel only. Removing or relabelling them is a separate
+change to the page.
+
+---
+
 ## 2026-11-17 — Live pilot terms agreed by Lee: the calm six, in four stages by account size. Not authorised to start
 
 **Decided by Lee.** Three answers, in Lee's words:
