@@ -31,6 +31,7 @@ KINDS = {
     "rehearsal": ("broker_paper_bot.py", "broker_paper", "-brokerpaper", "brokerpaper"),
     "live":      ("live_bot.py",         "live",         "-live",        "live"),
 }
+PAUSE_FILE = "PAUSE_BUYS"       # stock_bot.PAUSE_PATH: the owner's pause switch
 EXIT_STOPPED_ITSELF = 78        # stock_bot.EXIT_BROKER_MISMATCH
 BANNER = "Stock Trading Bot —"  # first line a bot logs when it starts
 LAST_FILLS = 8
@@ -301,6 +302,8 @@ def collect(root, processes, price_for=None, now=None):
                   if b["position"].get("unrealized_usd") is not None]
         totals[kind] = {
             "bots": len(kind_bots),
+            # The owner has switched buying off for every bot of this kind.
+            "buying_paused": os.path.exists(os.path.join(folder, PAUSE_FILE)),
             "running": sum(1 for b in kind_bots if b["process"]["state"] == "running"),
             "stopped_itself": sum(1 for b in kind_bots
                                   if b["process"]["state"] == "stopped_itself"),

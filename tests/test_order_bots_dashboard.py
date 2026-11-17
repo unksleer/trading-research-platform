@@ -372,6 +372,7 @@ def test_the_pages_own_script_renders_the_view(root, tmp_path):
                                   status="stopped", exit_code=78, TRADE_AMOUNT_USD="100")],
                    price=(745.0, "candle", 900))
     data["problem"] = ""
+    data["totals"]["live"]["buying_paused"] = True
     start = PAGE.index("// ---- Order-sending bots (rehearsal and live) ----")
     script = PAGE[start:PAGE.index("// Fetch metrics on load")]
     harness = tmp_path / "render.js"
@@ -399,3 +400,4 @@ def test_the_pages_own_script_renders_the_view(root, tmp_path):
     assert "xlp-live" in html and "REAL MONEY" in html
     assert "Rehearsal — Alpaca paper account, no money" in html and "Live — real money" in html
     assert "$100 a trade" in html and "closed by hand" not in html
+    assert html.count("BUYING PAUSED") == 1                 # live only, as set above

@@ -156,6 +156,30 @@ Plain restart, no `--update-env`. pm2 keeps the ticker and amount it was
 started with; `.env` is re-read for tuning as for every bot. `restart_bots.py`
 does not know this bot and will not restart it.
 
+## Pause buying
+
+To stop every rehearsal bot opening new positions, without stopping the bots:
+
+```bash
+touch broker_paper/PAUSE_BUYS
+```
+
+To resume:
+
+```bash
+rm broker_paper/PAUSE_BUYS
+```
+
+- While the file exists no buy is sent. A position already open is still
+  managed and closed as usual: stop loss, take profit, an owed exit, and
+  `close_position.py` all still work.
+- It takes effect at the bot's next tick. No restart.
+- One file covers every bot of its kind. For live bots it is `live/PAUSE_BUYS`.
+- The bot logs `BUY not sent: buying is PAUSED` when a signal comes while it
+  is paused, and the dashboard panel shows BUYING PAUSED.
+- This is the switch for the pilot's "stop buying and review" rule. Nothing
+  counts stop-outs and sets it; a person does.
+
 ## Stop it
 
 ```bash
@@ -320,11 +344,21 @@ Before stage one:
    ticker in the account as its own position. Shares held for other reasons
    will stop it at startup.
 4. **One question for Alpaca.** The small-account rules were looked up on
-   2026-11-17 (`DECISIONS.md`): the pattern-day-trader rule is gone, an
-   account under $2,000 is a margin account at 1x with no shorting, and a buy
-   and a sell on the same day does not restrict it. Not found in so many
-   words: whether good-faith violations can arise on such an account. Ask
-   Alpaca, or read it off the live account's settings, before funding.
+   2026-11-17 from FINRA's and Alpaca's pages (`DECISIONS.md`), not confirmed
+   on a real account:
+   - The pattern-day-trader rule is gone (FINRA Rule 4210 change, effective
+     2026-06-04): no day-trade count and no $25,000 minimum. A buy and a sell
+     on the same day does not restrict the account. Alpaca instead rejects an
+     order that would leave the account short of margin during the day; a
+     trade paid for in full cannot do that.
+   - Alpaca has no cash accounts. Under $2,000 the account is a margin
+     account at 1x buying power: no borrowing, no short selling.
+   - Settlement is T+1. Alpaca says an account under $2,000 can use sale
+     proceeds again without waiting; unsettled money cannot be withdrawn.
+   - So no change to the bot is needed for these rules.
+   - Not found in so many words: whether good-faith violations can arise on
+     such an account. Ask Alpaca, or read it off the live account's settings,
+     before funding.
 5. **Enough rehearsal fills** to believe the cost per side, and a decision on
    what cost would call the pilot off. The rehearsal runs at $100 a trade;
    fills at $16 have not been looked at.
@@ -332,7 +366,8 @@ Before stage one:
    and whether a stage's 20 trades count by entry or by exit.
 
 Not verified by anything in this repository: any order on the live endpoint,
-a real-money fill, a partial fill from Alpaca, an order rejected for
-day-trading, and `live_bot.py` or `close_position.py --live` run for real.
+a real-money fill, a partial fill from Alpaca, an order rejected for a margin
+shortfall, an order as small as $16, and `live_bot.py` or
+`close_position.py --live` run for real.
 They are tested against a fake broker only. The dashboard panel has been
 drawn by its own script in a test and not looked at in a browser.

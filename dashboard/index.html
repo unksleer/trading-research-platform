@@ -1682,6 +1682,7 @@
                 html += `<div class="ord-kind"><h4>${title}</h4>
                     <div class="ord-sum">${t.running} of ${t.bots} running` +
                     (t.stopped_itself ? ` · <b class="val-down">${t.stopped_itself} stopped itself</b>` : '') +
+                    (t.buying_paused ? ` · <b class="val-down">BUYING PAUSED</b> (pause file present; exits still run)` : '') +
                     ` · realized <b class="${ordCls(t.realized_usd)}">${ordUsd(t.realized_usd)}</b> over ${t.closed_trades} closed · ${unreal}<br>` +
                     `cost against signal price: ${ordSlippage(t.slippage)}</div>` +
                     mine.map(ordBot).join('') + `</div>`;

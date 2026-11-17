@@ -164,6 +164,7 @@ def order_sending_bot(monkeypatch, tmp_path, fake, *, live=False):
     bot.TRADES_PATH = str(tmp_path / "ledger.csv")
     bot.JOURNAL_PATH = str(tmp_path / "journal.json")
     bot.LOCK_PATH = str(tmp_path / "running.lock")
+    bot.PAUSE_PATH = str(tmp_path / "PAUSE_BUYS")
     bot.ORDER_POLL_SEC, bot.ORDER_CANCEL_SEC, bot.ORDER_POLL_INTERVAL_SEC = 0.05, 0.05, 0.0
     bot.fake = fake
     bot._real_reconcile = bot.reconcile_orders

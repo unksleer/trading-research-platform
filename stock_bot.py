@@ -187,6 +187,11 @@ if SENDS_ORDERS:
     # Held for as long as the process runs, so two processes can never work
     # the same state file and journal (utils/run_lock.py).
     LOCK_PATH    = os.path.join(RUN_DIR, f"running_stock_{TICKER.lower()}.lock")
+    # The owner's pause switch. While this file exists no bot of this kind
+    # opens a new position; open ones are still managed and closed. A file and
+    # not a setting, so it takes effect at the next tick with no restart, and
+    # one file covers every bot in the folder.
+    PAUSE_PATH   = os.path.join(RUN_DIR, "PAUSE_BUYS")
     SIGNAL_LOG   = (f"stock-{TICKER}", RUN_DIR)
     LOG_TAG      = f"stock/{TICKER}/{'brokerpaper' if BROKER_PAPER else 'live'}"
 else:
@@ -741,6 +746,10 @@ def open_position(state: dict, price: float):
     the fill against.
     """
     global _NO_BUY_BEFORE
+    if os.path.exists(PAUSE_PATH):
+        log.warning(f"BUY not sent: buying is PAUSED ({PAUSE_PATH} exists). "
+                    f"Remove the file to resume.")
+        return
     if _NO_BUY_BEFORE is not None and _utcnow() < _NO_BUY_BEFORE:
         log.info(f"BUY not sent: the last one did not fill. No new attempt "
                  f"before {_NO_BUY_BEFORE.isoformat(timespec='seconds')}.")
@@ -1128,6 +1137,9 @@ def main():
     if SENDS_ORDERS:
         log.warning(f"  ORDERS ARE SENT in this mode ({MODE}): ${TRADE_AMOUNT:.2f} a trade. "
                     f"State {STATE_PATH}, ledger {TRADES_PATH}.")
+        if os.path.exists(PAUSE_PATH):
+            log.warning(f"  Buying is PAUSED: {PAUSE_PATH} exists. No new position is "
+                        f"opened until it is removed. Exits are not affected.")
     reconcile_orders(state)
 
     # Second layer behind the request timeouts: if the loop stops completing

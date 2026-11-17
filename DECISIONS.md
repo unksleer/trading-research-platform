@@ -19,6 +19,48 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-17 — A pause switch for buying, and the runbook brought up to the agreed terms
+
+**Asked:** by the planning session, in two notes that arrived after the entry
+below was committed: use the pilot terms (already done: the $166 ceiling and
+the calm six), build a pause switch if it is cheap, send a $16 order to the
+paper account if any are sent, and put the small-account rules in the
+runbook. Same branch, one commit on top. Nothing started, merged or pushed.
+
+**Built: the pause switch.** While the file `live/PAUSE_BUYS` exists, no live
+bot opens a new position; `broker_paper/PAUSE_BUYS` does the same for
+rehearsal bots. Exits are not affected: a paused bot still takes its stop
+loss and its target, still sends an owed exit, and `close_position.py` still
+works. It is checked at each buy, so it takes effect at the next tick with no
+restart, and removing the file resumes. One file covers every bot of its
+kind, because the terms pause "the bots", not one of them. A file and not a
+setting, for the reason live has no environment variable. The dashboard panel
+shows BUYING PAUSED. Twelve lines in `stock_bot.py`, on the order-sending side
+only; a simulated bot has no such file and reads none.
+
+**Not built, as asked:** anything that counts stop-outs or closed trades and
+sets the switch, or moves between stages. A person sets it.
+
+**Not done: a $16 order on the paper account.** The notes arrived after the
+close (16:28 New York). The smallest order sent to Alpaca so far is $100, so
+a fractional order at stage 1's size is still unseen. The scratch script that
+ran the XLP hand close takes a ticker and a size and can run it in market
+hours.
+
+**Runbook.** `live_trading_stocks.md` now has the agreed stages and trade
+sizes, a "Pause buying" section, and the small-account rules as looked up
+(entry of this date below) in place of "rules unchecked", keeping the one open
+question for Alpaca.
+
+**Tests.** 8 new in `tests/test_pause_buys.py`, against the fake broker:
+paused sends nothing and journals nothing; removing the file resumes without
+a restart; a paused bot still closes on stop and target, still sends an owed
+exit, and can still be closed by hand; rehearsal and live have separate
+files. Removing the check from the code fails three of them. Full suite: 816 passed,
+2 skipped. `tests/test_simulated_path_unchanged.py` passes unmodified.
+
+---
+
 ## 2026-11-17 — Live gets its own way in, a hand-close tool, and a dashboard panel for the bots that send orders. Nothing is started; live is still not authorised
 
 **Asked:** by Lee, 2026-11-17 ("let do them all"), through the session
