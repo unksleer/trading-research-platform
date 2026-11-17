@@ -19,6 +19,53 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-17 — Live pieces merged; the rehearsal bot and the dashboard restarted onto them
+
+**Asked:** by Lee. "Yes, merge" for the branch in the two entries below, then
+"Yes, restart both" for the rehearsal bot and the dashboard. The twelve
+simulated bots were not restarted and are untouched: all online, restart
+count still 2. Nothing is pushed. Live is not authorised and has not run.
+
+**Before the merge, checked here rather than taken from the report.** The
+full suite on `f0bf732`: 816 passed, 2 skipped. The simulated-path and
+cooldown tests are unmodified on the branch. Run by hand: `stock_bot.py` with
+`ALPACA_PAPER=False` refuses to start; `live_bot.py` refuses without
+`--real-money`, refuses TSLA, and refuses $167 a trade. Not re-checked: the
+XLP orders the branch's entry says went to the paper account, and that the
+account was left flat (the rehearsal bot's own check covers SPY only).
+
+**Merged.** `lab1-container-ci` fast-forwarded to `f0bf732`.
+
+**Restarted, 17:57 ET, market closed.** Both with a plain `pm2 restart`, no
+`--update-env`, from a clean environment.
+
+- `spy-brokerpaper` (restart count 1): same ticker and amount as it was
+  started with, `--stop-exit-codes 78` kept, no session variable in its
+  environment. Log: `Reconciled with the broker at
+  https://paper-api.alpaca.markets: 0 SPY held, state file agrees, no open
+  orders`. It now holds its lock (`broker_paper/running_stock_spy.lock`) and
+  reads the pause file. It was flat before and after.
+- `dashboard` (restart count 3): `GET /` 200, the page carries the
+  "Order-Sending Bots" panel. `/api/order_bots` lists one rehearsal bot, SPY,
+  running, no position, 0 closed trades, and no live bot.
+- The simulated figures did not move. `/api/metrics` still lists 12 bots, the
+  rehearsal bot not among them, and the v5 panel reads as before: 0 closed,
+  0 open, 2 positions opened before the start and not counted.
+
+**Not verified.**
+
+- The panel has not been seen in a browser by anyone. The data behind it is
+  right for the one bot there is; the layout is unseen.
+- With no fill yet, the panel's fill, slippage and P&L figures have nothing
+  to show. They are tested against made-up ledgers only until the rehearsal
+  bot trades.
+- No order below $100 has been sent to the paper account.
+- The twelve simulated bots still run the code from their restart on
+  2026-11-16. The cooldown fix and everything since load at their next
+  restart, which is Lee's call.
+
+---
+
 ## 2026-11-17 — A pause switch for buying, and the runbook brought up to the agreed terms
 
 **Asked:** by the planning session, in two notes that arrived after the entry
