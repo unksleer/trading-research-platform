@@ -19,6 +19,75 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-17 — A rehearsal bot is running on Alpaca's paper account (SPY). pm2's stop flag tried. Small-account rules looked up
+
+**Asked:** by Lee, 2026-11-17 ("let do them all"): start one rehearsal bot on
+SPY, and check the day-trade and settlement rules for a small live account.
+No real money is involved in any of this. Live is not authorised.
+
+**Started.** `spy-brokerpaper`, 14:54 ET, from the main checkout at `f860d52`,
+by the command in `live_trading_stocks.md`, with a clean environment
+(`env -i`) and `--stop-exit-codes 78`. `pm2 save` afterwards. It is the first
+process here that sends orders anywhere; they go to the paper account only.
+
+- Its log: `ORDERS ARE SENT in this mode (BROKERPAPER): $100.00 a trade`, then
+  `Reconciled with the broker at https://paper-api.alpaca.markets: 0 SPY
+  held, state file agrees, no open orders`.
+- It read the v5 settings from `.env` like the twelve: RSI 35/65, stop 5%,
+  target 8%, trend gate on.
+- No session variable is in its environment. The twelve simulated bots were
+  not touched: all online, restart count still 2.
+- It is idle and will stay idle for now: `SPY closed 740.04 on 2026-11-16,
+  -3.08% below its 50-session average 763.54: entries off`. It can send
+  nothing until SPY closes back above that average and an entry signal shows.
+- Still untried on it: the trade email on a real fill, which waits for its
+  first fill.
+
+**pm2's `--stop-exit-codes 78`: tried, works** (pm2 7.0.3). Two throwaway
+processes with the flag and autorestart on. The one that exited 78 stayed
+stopped with 0 restarts. The one that exited 70 (the watchdog's code) was
+restarted. Both deleted afterwards. So a bot that stops itself over a broker
+mismatch stays stopped, and one the watchdog ends comes back. My first try at
+this was invalid (I had passed a flag that switched autorestart off) and was
+redone.
+
+**Small-account rules. Looked up, from Alpaca's and FINRA's pages; not
+confirmed with Alpaca on a real account.**
+
+- The pattern-day-trader rule is gone. The SEC approved FINRA's change to
+  Rule 4210 on 2026-04-14, effective 2026-06-04: no day-trade count, no
+  pattern-day-trader label, no $25,000 minimum. Alpaca says it has put this
+  into production. What replaces it is a check that the account can cover its
+  positions during the day; an order that would create a shortfall is
+  rejected before it is sent.
+- Alpaca has no cash accounts. Under $2,000 the account is a margin account
+  limited to 1x buying power, with no borrowing and no short selling.
+- Settlement is T+1, and Alpaca's own page says an account under $2,000 can
+  use sale proceeds again without waiting for them to settle. Unsettled money
+  cannot be withdrawn.
+- What this means for the pilot: a buy and a sell on the same day (a stop hit
+  on the day of entry, say) does not restrict the account, and a $100 trade
+  paid for in full cannot create a shortfall. No change to the bot is needed
+  for these rules. The live account cannot go short, which the paper account
+  can.
+- Not found: a statement from Alpaca on good-faith violations for accounts
+  under $2,000. Its pages imply they do not arise, because the account is a
+  margin account; no page says so in those words. One thing to ask Alpaca
+  support, or to read off the live account's own settings, before funding.
+- Sources: FINRA weekly update 2026-04-15
+  (finra.org/compliance-tools/weekly-archive/04152026); WilmerHale client
+  alert 2026-04-23; Alpaca, "FINRA Retires the PDT Rule: Introducing Alpaca's
+  New Intraday Margin Framework"; Alpaca docs, "Margin and Short Selling";
+  Alpaca support, "Can I have a cash account with Alpaca?"; Alpaca learn,
+  "What are Unsettled Funds?".
+
+**Not done.** The live entry script, the hand-close tool and the dashboard
+view are being built by the order-path session on its own branch. The stage
+sizes and the rules for moving between stages are not agreed. Nothing is
+pushed.
+
+---
+
 ## 2026-11-17 — The cooldown after a loss now survives a restart. A defect fix under the v5 seal; no rule changed
 
 **Asked:** by Lee, 2026-11-17 ("let do them all"), after the order-path entry
