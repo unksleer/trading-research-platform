@@ -628,6 +628,38 @@
             color: var(--text-secondary);
         }
 
+        /* Order-sending bots: rehearsal and live. Their own panel, their own
+           numbers; nothing here feeds any other figure on the page. */
+        .ord-note { font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin: 0 0 14px; }
+        .ord-kind { margin-top: 18px; padding-top: 14px;
+                    border-top: 1px solid var(--border-color, rgba(255,255,255,.08)); }
+        .ord-kind:first-of-type { margin-top: 0; padding-top: 0; border-top: none; }
+        .ord-kind h4 { margin: 0 0 4px; font-size: 13px; letter-spacing: .06em;
+                       text-transform: uppercase; color: var(--text-primary); }
+        .ord-sum { font-family: var(--mono, ui-monospace, monospace); font-size: 12px;
+                   color: var(--text-secondary); margin-bottom: 10px; line-height: 1.7; }
+        .ord-sum b { color: var(--text-primary); font-weight: 600; }
+        .ord-bot { border: 1px solid var(--border-color, rgba(255,255,255,.10));
+                   border-radius: 8px; padding: 12px 14px; margin-top: 10px; }
+        .ord-bot.ord-alarm { border-color: var(--accent-red); background: var(--accent-glow-red); }
+        .ord-head { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline; }
+        .ord-name { font-family: var(--mono, ui-monospace, monospace); font-size: 14px;
+                    font-weight: 700; color: var(--text-primary); }
+        .ord-state { font-family: var(--mono, ui-monospace, monospace); font-size: 10px;
+                     font-weight: 700; letter-spacing: .08em; padding: 2px 7px; border-radius: 2px; }
+        .ord-run  { background: var(--accent-glow-green); color: var(--accent-green); }
+        .ord-stop { background: var(--accent-glow-red); color: var(--accent-red); }
+        .ord-idle { background: rgba(255,255,255,.07); color: var(--text-secondary); }
+        .ord-live { background: rgba(245,158,11,.18); color: #f59e0b; }
+        .ord-why { font-size: 12.5px; color: var(--text-primary); margin-top: 8px; line-height: 1.5;
+                   overflow-wrap: anywhere; }
+        .ord-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+                     gap: 6px 18px; margin-top: 10px; font-size: 12.5px; }
+        .ord-facts .k { color: var(--text-secondary); display: block; font-size: 11px; }
+        .ord-facts .v { font-family: var(--mono, ui-monospace, monospace); color: var(--text-primary); }
+        .ord-fills { margin-top: 10px; font-size: 12px; }
+        .ord-fills td, .ord-fills th { padding: 5px 8px; }
+
         .stale-note {
             font-size: 0.7rem;
             color: var(--accent-red);
@@ -672,6 +704,26 @@
             <div id="observer-body"></div>
         </div>
 
+
+        <!--
+          Order-sending bots: a rehearsal bot sends real orders to Alpaca's
+          PAPER account, a live bot to the real one. Neither is one of the
+          registered simulated bots. This panel is fed by its own endpoint
+          (/api/order_bots) and nothing in it is added to any other number on
+          the page: not the simulated P&L cards, not the registration panel,
+          not the positions ledger. Shown always, so "none started" and "this
+          panel is broken" cannot be confused.
+        -->
+        <div class="scanner-panel" id="order-bots-panel" style="margin-bottom: 30px;">
+            <div class="panel-header">
+                <h2>📨 Order-Sending Bots <span class="obs-badge">NOT PART OF V5</span></h2>
+                <span class="card-subtext" id="orders-updated">—</span>
+            </div>
+            <p class="ord-note">Rehearsal bots send real orders to Alpaca's paper account (no money);
+                live bots spend real money. Their P&amp;L comes from fills and is shown here only.
+                It is never added to the simulated figures or to the registration below.</p>
+            <div id="order-bots-body"></div>
+        </div>
 
         <!-- --- Bot Signal Status Panel --- -->
         <div class="scanner-panel" id="bot-signal-panel" style="margin-bottom: 30px;">
@@ -1477,10 +1529,10 @@
         // across either showed hours-old positions under a timestamp nobody
         // reads: SOL had stopped out and the page still said IN TRADE. Nothing
         // on the page distinguished "current" from "frozen".
-        const POLL_MS = { metrics: 10000, signals: 30000 };
-        const STAMP_ID = { metrics: 'last-updated', signals: 'signal-updated' };
-        const lastOk = { metrics: 0, signals: 0 };
-        const lastFail = { metrics: null, signals: null };
+        const POLL_MS = { metrics: 10000, signals: 30000, orders: 30000 };
+        const STAMP_ID = { metrics: 'last-updated', signals: 'signal-updated', orders: 'orders-updated' };
+        const lastOk = { metrics: 0, signals: 0, orders: 0 };
+        const lastFail = { metrics: null, signals: null, orders: null };
 
         function stampEl(panel) { return document.getElementById(STAMP_ID[panel]); }
         function fmt(t) { return new Date(t).toLocaleTimeString(); }
@@ -1523,19 +1575,136 @@
             }
         }
 
+        // ---- Order-sending bots (rehearsal and live) ----
+        // Fed only by /api/order_bots and drawn only into #order-bots-body.
+        // Nothing here reads or writes the simulated figures.
+
+        function escHtml(v) {
+            return String(v == null ? '' : v).replace(/[&<>"']/g, c => (
+                { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+        const ordUsd = v => (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(2);
+        const ordPct = v => v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(3) + '%';
+        const ordCls = v => v == null ? '' : (v >= 0 ? 'val-up' : 'val-down');
+
+        async function fetchOrderBots() {
+            try {
+                const res = await fetch('/api/order_bots');
+                if (!res.ok) throw new Error("HTTP error " + res.status);
+                renderOrderBots(await res.json());
+                markOk('orders');
+            } catch (err) {
+                console.error("Failed to load order-sending bots:", err);
+                markFail('orders', err);
+            }
+        }
+
+        function ordSlippage(s) {
+            // Cost: positive means the fill was worse than the signal price.
+            if (!s) return 'no fills yet';
+            const verdict = s.avg_cost_pct > s.assumed_pct ? 'worse than assumed' : 'no worse than assumed';
+            return `<b>${ordPct(s.avg_cost_pct)}</b> a side over ${s.fills} fill${s.fills === 1 ? '' : 's'}` +
+                   ` · backtests assume ${ordPct(s.assumed_pct)} · ${verdict}` +
+                   (s.fills < 30 ? ' · too few fills to conclude from' : '');
+        }
+
+        function ordBot(b) {
+            const p = b.process, pos = b.position;
+            const alarm = p.state === 'stopped_itself' || p.state === 'errored' || b.state_error;
+            const stateCls = p.state === 'running' ? 'ord-run' : (alarm ? 'ord-stop' : 'ord-idle');
+            const logAge = b.log_age_seconds == null ? 'no log yet'
+                         : 'log written ' + ageText(b.log_age_seconds * 1000) + ' ago';
+            let position = 'Flat';
+            if (pos.held) {
+                position = `${pos.shares.toFixed(6)} sh @ $${pos.entry_price.toFixed(4)} (fill)`;
+            }
+            const entryVsSignal = !pos.held ? '—'
+                : (pos.entry_signal_price ? `signal $${pos.entry_signal_price.toFixed(4)} · fill minus signal ${ordPct(pos.entry_fill_minus_signal_pct)}` : 'no signal price recorded');
+            const unreal = !pos.held ? '—'
+                : (pos.unrealized_usd == null ? 'price unknown'
+                   : `<span class="${ordCls(pos.unrealized_usd)}">${ordUsd(pos.unrealized_usd)}</span> at $${pos.price.toFixed(4)}`);
+            const fills = (b.fills || []).map(f => `
+                <tr>
+                    <td>${escHtml((f.when || '').replace('T', ' '))}</td>
+                    <td>${escHtml(f.side)}</td>
+                    <td>$${f.signal.toFixed(4)}</td>
+                    <td>$${f.fill.toFixed(4)}</td>
+                    <td>${ordPct(f.fill_minus_signal_pct)}</td>
+                    <td class="${f.cost_pct > 0 ? 'val-down' : 'val-up'}">${ordPct(f.cost_pct)}</td>
+                    <td style="color:var(--text-secondary)">${escHtml(f.note)}</td>
+                </tr>`).join('');
+            const notes = [];
+            if (p.detail) notes.push(escHtml(p.detail));
+            if (b.state_error) notes.push(escHtml(b.state_error));
+            if (pos.held && pos.exit_owed) notes.push(`An exit is owed and has not filled: ${escHtml(pos.exit_owed.reason)} (${pos.exit_owed.attempts} attempt${pos.exit_owed.attempts === 1 ? '' : 's'}).`);
+            if (b.unfinished_orders == null) notes.push('Its order journal cannot be read.');
+            else if (b.unfinished_orders > 0) notes.push(`${b.unfinished_orders} order(s) without a final answer from the broker.`);
+            return `
+                <div class="ord-bot ${alarm ? 'ord-alarm' : ''}">
+                    <div class="ord-head">
+                        <span class="ord-name">${escHtml(b.name)}</span>
+                        <span class="ord-state ${stateCls}">${escHtml(p.label.toUpperCase())}</span>
+                        ${b.kind === 'live' ? '<span class="ord-state ord-live">REAL MONEY</span>' : ''}
+                        <span class="card-subtext">${escHtml(b.ticker)}${b.trade_usd ? ' · $' + b.trade_usd.toFixed(0) + ' a trade' : ''} · ${logAge}${b.restarts ? ' · ' + b.restarts + ' restart(s)' : ''}</span>
+                    </div>
+                    ${notes.length ? `<div class="ord-why">${notes.join('<br>')}</div>` : ''}
+                    <div class="ord-facts">
+                        <div><span class="k">Position</span><span class="v">${position}</span></div>
+                        <div><span class="k">Entry against signal</span><span class="v">${entryVsSignal}</span></div>
+                        <div><span class="k">Unrealized</span><span class="v">${unreal}</span></div>
+                        <div><span class="k">Realized, from fills</span><span class="v"><span class="${ordCls(b.realized_usd)}">${ordUsd(b.realized_usd)}</span> over ${b.closed_trades} closed</span></div>
+                        <div><span class="k">Cost against signal price</span><span class="v">${ordSlippage(b.slippage)}</span></div>
+                    </div>
+                    ${fills ? `<div class="ord-fills" style="overflow-x:auto"><table class="ledger-table">
+                        <thead><tr><th>Fill (UTC)</th><th>Side</th><th>Signal</th><th>Fill</th><th>Fill − signal</th><th>Cost</th><th></th></tr></thead>
+                        <tbody>${fills}</tbody></table></div>` : ''}
+                </div>`;
+        }
+
+        function renderOrderBots(data) {
+            const body = document.getElementById('order-bots-body');
+            const stamp = document.getElementById('orders-updated');
+            if (!body) return;
+            const bots = data.bots || [];
+            const kinds = [['rehearsal', 'Rehearsal — Alpaca paper account, no money'],
+                           ['live', 'Live — real money']];
+            let html = data.problem ? `<div class="ord-bot ord-alarm"><div class="ord-why">${escHtml(data.problem)}</div></div>` : '';
+            for (const [kind, title] of kinds) {
+                const mine = bots.filter(b => b.kind === kind);
+                const t = (data.totals || {})[kind];
+                if (!mine.length) {
+                    html += `<div class="ord-kind"><h4>${title}</h4><div class="ord-sum">None started.</div></div>`;
+                    continue;
+                }
+                const unreal = t.open_positions === 0 ? 'no open position'
+                    : `unrealized <b class="${ordCls(t.unrealized_usd)}">${ordUsd(t.unrealized_usd)}</b>` +
+                      (t.unpriced_positions ? ` (${t.unpriced_positions} position(s) unpriced, not counted)` : '');
+                html += `<div class="ord-kind"><h4>${title}</h4>
+                    <div class="ord-sum">${t.running} of ${t.bots} running` +
+                    (t.stopped_itself ? ` · <b class="val-down">${t.stopped_itself} stopped itself</b>` : '') +
+                    ` · realized <b class="${ordCls(t.realized_usd)}">${ordUsd(t.realized_usd)}</b> over ${t.closed_trades} closed · ${unreal}<br>` +
+                    `cost against signal price: ${ordSlippage(t.slippage)}</div>` +
+                    mine.map(ordBot).join('') + `</div>`;
+            }
+            body.innerHTML = html;
+            if (stamp) stamp.textContent = 'Updated: ' + fmt(Date.now());
+        }
+
         // Fetch metrics on load
         fetchMetrics();
         fetchBotSignals();
+        fetchOrderBots();
         // Poll metrics every 10 seconds, signals every 30 seconds
         setInterval(fetchMetrics, 10000);
         setInterval(fetchBotSignals, 30000);
+        setInterval(fetchOrderBots, 30000);
         setInterval(checkStale, 5000);
 
         // A tab regaining focus re-fetches immediately rather than waiting out
         // a throttled timer — the case where "stale" is most likely and least
         // expected.
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') { fetchMetrics(); fetchBotSignals(); }
+            if (document.visibilityState === 'visible') { fetchMetrics(); fetchBotSignals(); fetchOrderBots(); }
         });
     </script>
 </body>

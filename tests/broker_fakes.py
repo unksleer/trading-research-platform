@@ -155,14 +155,15 @@ def order_sending_bot(monkeypatch, tmp_path, fake, *, live=False):
            "STOCK_COOLDOWN_HOURS_AFTER_LOSS": "0.0", "STOCK_MIN_VOLUME_RATIO": "0.0",
            "STOCK_LOOP_INTERVAL_SEC": "60"}
     if live:
-        env.update({"ALPACA_PAPER": "False", "ALPACA_LIVE_API_KEY": "live-key",
+        env.update({"ALPACA_LIVE_API_KEY": "live-key",
                     "ALPACA_LIVE_SECRET_KEY": "live-secret"})
-    bot = load_stock_bot(monkeypatch, broker_paper=not live, env=env)
+    bot = load_stock_bot(monkeypatch, broker_paper=not live, live=live, env=env)
     if live:
         fake._base_url = "https://api.alpaca.markets"
     bot.STATE_PATH = str(tmp_path / "state.json")
     bot.TRADES_PATH = str(tmp_path / "ledger.csv")
     bot.JOURNAL_PATH = str(tmp_path / "journal.json")
+    bot.LOCK_PATH = str(tmp_path / "running.lock")
     bot.ORDER_POLL_SEC, bot.ORDER_CANCEL_SEC, bot.ORDER_POLL_INTERVAL_SEC = 0.05, 0.05, 0.0
     bot.fake = fake
     bot._real_reconcile = bot.reconcile_orders
@@ -193,6 +194,7 @@ def run(bot, monkeypatch, ticks, *, ends=StopLoop, restart=True):
     memory is kept and there is no startup check.
     """
     from utils.market_gate import GateState
+    _process_ended(bot)
     if restart:
         bot._BROKER = bot._SHARED_STATE = bot._NO_BUY_BEFORE = None
         monkeypatch.setattr(bot, "reconcile_orders", bot._real_reconcile)
@@ -225,9 +227,20 @@ def run(bot, monkeypatch, ticks, *, ends=StopLoop, restart=True):
     monkeypatch.setattr(bot, "signal_logger", lambda: FakeSignalLog())
     monkeypatch.setattr(watchdog, "start", lambda *a, **k: FakeWatchdog())
 
-    with pytest.raises(ends) as stopped:
-        bot.main()
+    try:
+        with pytest.raises(ends) as stopped:
+            bot.main()
+    finally:
+        _process_ended(bot)
     return types.SimpleNamespace(naps=naps, stopped=stopped.value)
+
+
+def _process_ended(bot):
+    """The kernel drops a process's run lock when the process ends. Here the
+    'process' is a call to main(), so the lock is dropped by hand."""
+    from utils import run_lock
+    run_lock.release(getattr(bot, "_RUN_LOCK", None))
+    bot._RUN_LOCK = None
 
 
 def state_of(bot):

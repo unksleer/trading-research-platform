@@ -54,7 +54,7 @@ def problems(env):
                      "is no default here.")
     if (env.get("ALPACA_PAPER") or "True").strip().lower() in FALSE:
         found.append("ALPACA_PAPER is false. This script only ever talks to "
-                     "the paper account; live is stock_bot.py.")
+                     "the paper account; live is live_bot.py.")
     # pm2 puts the process name in the environment and no restart overwrites
     # it (utils/identity.py). A rehearsal bot is named <ticker>-brokerpaper,
     # so a restart that changed its ticker is caught before it opens a file.

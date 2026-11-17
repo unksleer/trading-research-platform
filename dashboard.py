@@ -206,6 +206,14 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(data).encode('utf-8'))
             return
 
+        if self.path == '/api/order_bots':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(self.get_order_bots()).encode('utf-8'))
+            return
+
         if self.path == '/api/bot_signals':
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
@@ -538,6 +546,36 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             results.append(entry)
 
         return results
+
+    def get_order_bots(self):
+        """
+        The rehearsal and live bots: the ones that send real orders
+        (broker_paper_bot.py, live_bot.py). Read-only, and kept out of
+        /api/metrics on purpose: nothing in that payload, and so none of the
+        simulated or v5 figures built from it, can include one of these.
+        """
+        root = os.path.dirname(os.path.abspath(__file__))
+        problem = ""
+        processes = []
+        try:
+            result = subprocess.run(["pm2", "jlist"], capture_output=True, text=True, timeout=5)
+            processes = json.loads(result.stdout or "[]")
+        except Exception as e:
+            # Said on the page: without pm2 a running bot reads as not started.
+            problem = f"pm2 could not be read ({e}); process status below is unknown"
+            logger.error(f"Order bots: {problem}")
+        try:
+            from utils import order_bots
+            data = order_bots.collect(
+                root, processes,
+                price_for=lambda ticker, entry: self.price_resolver.get(ticker, entry, "stocks"))
+        except Exception as e:
+            logger.error(f"Order bots: could not be read: {e}")
+            data = {"bots": [], "totals": {}}
+            problem = problem or f"the order-sending bots' files could not be read ({e})"
+        data["timestamp"] = datetime_now_iso()
+        data["problem"] = problem
+        return data
 
     def get_pm2_status(self):
         """

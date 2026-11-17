@@ -53,6 +53,7 @@ def legs_from_ledger(path):
             for side, fill_key, signal_key, when_key in (
                     ("BUY", "entry_price", "entry_signal_price", "entry_time"),
                     ("SELL", "exit_price", "exit_signal_price", "exit_time")):
+                reason = row.get("exit_reason", "") if side == "SELL" else ""
                 fill, signal = _num(row.get(fill_key)), _num(row.get(signal_key))
                 if not fill or not signal:
                     continue
@@ -61,6 +62,7 @@ def legs_from_ledger(path):
                              "signal": signal, "fill": fill,
                              "shares": _num(row.get("shares")) or 0.0,
                              "attempts": row.get("exit_attempts", "") if side == "SELL" else "",
+                             "by_hand": (reason or "").startswith("Closed by hand"),
                              "open": False})
     return legs
 
@@ -78,7 +80,7 @@ def leg_from_state(path):
     return [{"ticker": state.get("ticker", ""), "side": "BUY",
              "when": (state.get("entry_time") or "")[:19], "signal": signal,
              "fill": fill, "shares": _num(state.get("shares")) or 0.0,
-             "attempts": "", "open": True}]
+             "attempts": "", "by_hand": False, "open": True}]
 
 
 def measure(leg):
@@ -86,6 +88,19 @@ def measure(leg):
     diff = leg["fill"] - leg["signal"]
     pct = diff / leg["signal"] * 100
     return diff, pct, (pct if leg["side"] == "BUY" else -pct)
+
+
+def note(leg):
+    """What a reader needs to know about one fill before comparing it."""
+    if leg.get("open"):
+        return "position still open"
+    if leg.get("by_hand"):
+        # close_position.py. A real fill, measured against the newest hourly
+        # close when the person ran the tool, not against a signal.
+        return "closed by hand"
+    if str(leg.get("attempts", "")) not in ("", "1"):
+        return f"sold on attempt {leg['attempts']}; signal is the first attempt's"
+    return ""
 
 
 def summarise(legs):
@@ -101,16 +116,13 @@ def render(legs):
     if not legs:
         return ("  No fills recorded yet. An order-sending bot writes one row per "
                 "closed trade;\n  nothing has closed, or no such bot has run.\n")
-    out = [f"  {'ticker':<6}{'side':<5}{'when (UTC)':<21}{'signal':>10}{'fill':>10}"
+    out = [f"  {'ticker':<7}{'side':<5}{'when (UTC)':<21}{'signal':>10}{'fill':>10}"
            f"{'fill-signal':>13}{'%':>9}{'cost %':>9}  note"]
     for leg in sorted(legs, key=lambda l: (l["when"], l["side"])):
         diff, pct, cost = measure(leg)
-        note = "position still open" if leg["open"] else ""
-        if str(leg["attempts"]) not in ("", "1"):
-            note = f"sold on attempt {leg['attempts']}; signal is the first attempt's"
-        out.append(f"  {leg['ticker']:<6}{leg['side']:<5}{leg['when']:<21}"
+        out.append(f"  {leg['ticker']:<7}{leg['side']:<5}{leg['when']:<21}"
                    f"{leg['signal']:>10.4f}{leg['fill']:>10.4f}{diff:>+13.4f}"
-                   f"{pct:>+9.3f}{cost:>+9.3f}  {note}")
+                   f"{pct:>+9.3f}{cost:>+9.3f}  {note(leg)}")
     summary = summarise(legs)
     out.append("")
     for label, key in (("buys", "BUY"), ("sells", "SELL"), ("both sides", "all")):
@@ -128,10 +140,7 @@ def render(legs):
 
 
 def default_paths(live=False, root=DIR):
-    if live:
-        return (sorted(glob.glob(os.path.join(root, "completed_trades_stock_*_live.csv"))),
-                sorted(glob.glob(os.path.join(root, "state_stock_*_live.json"))))
-    run_dir = os.path.join(root, "broker_paper")
+    run_dir = os.path.join(root, "live" if live else "broker_paper")
     return (sorted(glob.glob(os.path.join(run_dir, "completed_trades_stock_*.csv"))),
             sorted(glob.glob(os.path.join(run_dir, "state_stock_*.json"))))
 

@@ -101,11 +101,13 @@ def test_it_reads_broker_paper_by_default_and_live_only_when_asked(tmp_path, cap
     run_dir = tmp_path / "broker_paper"
     run_dir.mkdir()
     ledger(run_dir, [TRADE])
-    ledger(tmp_path, [TRADE], name="completed_trades_stock_spy_live.csv")
+    (tmp_path / "live").mkdir()
+    ledger(tmp_path / "live", [TRADE], name="completed_trades_stock_xlp.csv")
     ledger(tmp_path, [TRADE], name="completed_trades_stock_spy_paper.csv")
     paper_ledgers, _ = report.default_paths(root=str(tmp_path))
     live_ledgers, _ = report.default_paths(live=True, root=str(tmp_path))
     assert [os.path.basename(p) for p in paper_ledgers] == ["completed_trades_stock_spy.csv"]
-    assert [os.path.basename(p) for p in live_ledgers] == ["completed_trades_stock_spy_live.csv"]
+    assert [os.path.relpath(p, tmp_path) for p in live_ledgers] == [
+        os.path.join("live", "completed_trades_stock_xlp.csv")]
     assert report.main(paper_ledgers) == 0
-    assert "SPY   BUY" in capsys.readouterr().out
+    assert "SPY    BUY" in capsys.readouterr().out

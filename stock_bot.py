@@ -27,7 +27,8 @@ Execution modes (utils/execution_mode.py, live_trading_stocks.md):
                 records the signal price. What the registered bots run.
   broker paper  Real orders to Alpaca's paper account, state and ledger from
                 the fills. Started through broker_paper_bot.py, never this file.
-  live          ALPACA_PAPER=False. The same order path, real money.
+  live          The same order path, real money. Started through live_bot.py,
+                never this file: ALPACA_PAPER=False here is refused.
 """
 import os
 import sys
@@ -61,18 +62,36 @@ IS_PAPER        = os.getenv("ALPACA_PAPER", "True").strip().lower() not in ("fal
 
 # Three execution modes (utils/execution_mode.py). Simulated is the default and
 # sends nothing. Broker paper sends real orders to Alpaca's paper account and
-# is reached only through broker_paper_bot.py, never through an environment
-# variable. Live is ALPACA_PAPER=False.
+# live sends them to the real one; each is reached only through its own entry
+# script (broker_paper_bot.py, live_bot.py), never through an environment
+# variable.
 from utils import execution_mode as _execution_mode
-if _execution_mode.REQUESTED not in (None, _execution_mode.BROKER_PAPER):
+if _execution_mode.REQUESTED not in (None, _execution_mode.BROKER_PAPER,
+                                     _execution_mode.LIVE):
     sys.exit(f"Unknown execution mode {_execution_mode.REQUESTED!r}; refusing to start.")
 BROKER_PAPER    = _execution_mode.REQUESTED == _execution_mode.BROKER_PAPER
+LIVE            = _execution_mode.REQUESTED == _execution_mode.LIVE
 if BROKER_PAPER and not IS_PAPER:
     sys.exit("Broker-paper mode with ALPACA_PAPER=False: that would send paper-mode "
              "orders to the live endpoint. Refusing to start.")
+if LIVE and IS_PAPER:
+    sys.exit("Live mode with ALPACA_PAPER not false: that would send live-mode "
+             "orders to the paper endpoint. Refusing to start.")
+if not IS_PAPER and not LIVE:
+    # ALPACA_PAPER=False used to be all it took to make this script send
+    # real-money orders, and an environment variable can arrive by accident
+    # (a restart with --update-env, a line in .env).
+    sys.exit("REFUSING TO START: ALPACA_PAPER is false, and stock_bot.py no longer "
+             "trades live on an environment variable. A live bot is started with "
+             "live_bot.py (live_trading_stocks.md). A simulated bot needs "
+             "ALPACA_PAPER=True.")
+if LIVE and not (0 < TRADE_AMOUNT <= _execution_mode.LIVE_MAX_TRADE_USD):
+    sys.exit(f"REFUSING TO START: live trade size ${TRADE_AMOUNT:,.2f} is outside "
+             f"$0 to ${_execution_mode.LIVE_MAX_TRADE_USD:,.0f} "
+             f"(utils/execution_mode.py, LIVE_MAX_TRADE_USD).")
 # True when this process sends orders to a broker. Everything the simulated
 # bots do is on the False side of it.
-SENDS_ORDERS    = BROKER_PAPER or not IS_PAPER
+SENDS_ORDERS    = BROKER_PAPER or LIVE
 
 # A live bot reads its own key pair. ALPACA_API_KEY is the paper key that every
 # simulated bot reads from .env, so live cannot share the name: putting a live
@@ -151,26 +170,25 @@ MODE = "BROKERPAPER" if BROKER_PAPER else ("PAPER" if IS_PAPER else "LIVE")
 # them, so it can run beside the simulated bot for the same ticker without
 # either writing into the other's log, state, ledger, journal or signal log.
 #
-# Broker paper keeps its state and ledger in broker_paper/ rather than beside
-# the others because the dashboard, the observer and the reports find files by
-# pattern (state_*.json, completed_trades_*.csv). A rehearsal ledger in the
-# project root would be counted as live P&L, and a rehearsal position as one
-# of the registered run's.
-if BROKER_PAPER:
-    RUN_DIR      = os.path.join(DIR, "broker_paper")
-    log_path     = os.path.join(DIR, "logs", f"stock_{TICKER.lower()}_brokerpaper.log")
+# An order-sending bot keeps its state, ledger, journal and signal log in a
+# folder of its own (broker_paper/ or live/) rather than beside the others,
+# because the dashboard, the observer and the reports find files by pattern
+# (state_*.json, completed_trades_*.csv). In the project root a rehearsal
+# ledger would be counted as live P&L, and a rehearsal or live position would
+# be added to the registered run's unrealised P&L. Out of the root, only the
+# code written to read them does (utils/order_bots.py, slippage_report.py).
+if SENDS_ORDERS:
+    RUN_DIR      = os.path.join(DIR, "broker_paper" if BROKER_PAPER else "live")
+    log_path     = os.path.join(DIR, "logs", f"stock_{TICKER.lower()}_"
+                                             f"{'brokerpaper' if BROKER_PAPER else 'live'}.log")
     STATE_PATH   = os.path.join(RUN_DIR, f"state_stock_{TICKER.lower()}.json")
     TRADES_PATH  = os.path.join(RUN_DIR, f"completed_trades_stock_{TICKER.lower()}.csv")
     JOURNAL_PATH = os.path.join(RUN_DIR, f"order_journal_stock_{TICKER.lower()}.json")
+    # Held for as long as the process runs, so two processes can never work
+    # the same state file and journal (utils/run_lock.py).
+    LOCK_PATH    = os.path.join(RUN_DIR, f"running_stock_{TICKER.lower()}.lock")
     SIGNAL_LOG   = (f"stock-{TICKER}", RUN_DIR)
-    LOG_TAG      = f"stock/{TICKER}/brokerpaper"
-elif not IS_PAPER:
-    log_path     = os.path.join(DIR, "logs", f"stock_{TICKER.lower()}_live.log")
-    STATE_PATH   = os.path.join(DIR, f"state_stock_{TICKER.lower()}_live.json")
-    TRADES_PATH  = os.path.join(DIR, f"completed_trades_stock_{TICKER.lower()}_live.csv")
-    JOURNAL_PATH = os.path.join(DIR, "logs", f"order_journal_stock_{TICKER.lower()}_live.json")
-    SIGNAL_LOG   = (f"stock-{TICKER}-live", "logs")
-    LOG_TAG      = f"stock/{TICKER}/live"
+    LOG_TAG      = f"stock/{TICKER}/{'brokerpaper' if BROKER_PAPER else 'live'}"
 else:
     log_path     = os.path.join(DIR, "logs", f"stock_{TICKER.lower()}.log")
     STATE_PATH   = os.path.join(DIR, f"state_stock_{TICKER.lower()}_{MODE.lower()}.json")
@@ -638,6 +656,7 @@ def place_buy(price: float) -> float:
 # ─────────────────────────────────────────────────────────────────────────────
 _BROKER = None
 _NO_BUY_BEFORE = None
+_RUN_LOCK = None
 _pause = time.sleep     # startup only; the loop's one sleep is in main()
 
 
@@ -665,6 +684,26 @@ def _stop_on_mismatch(message):
                  f"{EXIT_BROKER_MISMATCH}. See live_trading_stocks.md, "
                  f"'When the bot stops itself'.")
     sys.exit(EXIT_BROKER_MISMATCH)
+
+
+def take_run_lock():
+    """
+    Be the only process working this bot's state file and order journal.
+
+    Both are read once and then kept in memory, so a second process (another
+    copy of the bot, or close_position.py) would write over what this one
+    knows and the two would send orders against each other's position. Held
+    until the process ends, however it ends. Exits with the code pm2 is told
+    to leave alone, so a duplicate does not restart in a loop.
+    """
+    global _RUN_LOCK
+    from utils import run_lock
+    try:
+        _RUN_LOCK = run_lock.acquire(LOCK_PATH, f"{MODE} bot for {TICKER}")
+    except run_lock.Held as held:
+        log.critical(f"ALREADY RUNNING — {held}. Two processes must not work the "
+                     f"same state file. Exiting with code {EXIT_BROKER_MISMATCH}.")
+        sys.exit(EXIT_BROKER_MISMATCH)
 
 
 def _same_qty(a, b) -> bool:
@@ -1079,12 +1118,16 @@ def main():
                       "be set in .env — exiting.")
         sys.exit(1)
 
+    if SENDS_ORDERS:
+        # Before the state file is read: whoever holds the lock may be about
+        # to change it.
+        os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
+        take_run_lock()
     state = load_state()
     log.info(f"State loaded: position={state['position']}")
     if SENDS_ORDERS:
         log.warning(f"  ORDERS ARE SENT in this mode ({MODE}): ${TRADE_AMOUNT:.2f} a trade. "
                     f"State {STATE_PATH}, ledger {TRADES_PATH}.")
-        os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
     reconcile_orders(state)
 
     # Second layer behind the request timeouts: if the loop stops completing

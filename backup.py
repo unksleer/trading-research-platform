@@ -39,9 +39,10 @@ EVIDENCE = (
     "logs/correlations.json",
     "logs/signal_log_*.csv",
     "logs/fcr_signals_*.jsonl",
-    # An order-sending rehearsal bot's state, ledger, journal and signal log.
+    # An order-sending bot's state, ledger, journal and signal log: rehearsal
+    # (broker_paper_bot.py) and live (live_bot.py).
     "broker_paper/*.json", "broker_paper/*.csv",
-    "logs/order_journal_stock_*.json",
+    "live/*.json", "live/*.csv",
 )
 EXCLUDE = (".env",)
 

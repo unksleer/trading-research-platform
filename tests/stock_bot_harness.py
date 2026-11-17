@@ -55,11 +55,14 @@ def hourly_bars(n=150, last_volume=1000.0):
 
 
 def load_stock_bot(monkeypatch, path=None, *, name="stock_bot_under_test",
-                   broker_paper=False, env=None, test_keys=True):
+                   broker_paper=False, live=False, env=None, test_keys=True):
     """
     Load a stock_bot.py as a module, isolated from the running fleet: a ticker
     no bot trades, .env not read, no log file opened. `path` lets a test load
     another copy of the file (the one from before a change, say).
+    `broker_paper` and `live` load it the way broker_paper_bot.py and
+    live_bot.py do: the mode is set in utils.execution_mode, not in the
+    environment.
     """
     monkeypatch.setenv("STOCK_TICKER", "ZZTEST")
     monkeypatch.setenv("ALPACA_PAPER", "True")
@@ -69,6 +72,8 @@ def load_stock_bot(monkeypatch, path=None, *, name="stock_bot_under_test",
                 "STOCK_TREND_GATE_DAYS", "STOCK_TREND_GATE_SYMBOL",
                 "ALPACA_CONNECT_TIMEOUT_SEC", "ALPACA_READ_TIMEOUT_SEC"):
         monkeypatch.delenv(key, raising=False)
+    if live:
+        monkeypatch.setenv("ALPACA_PAPER", "False")
     for key, value in (env or {}).items():
         monkeypatch.setenv(key, value)
     monkeypatch.setattr("utils.env_loader.load", lambda *a, **k: set())
@@ -76,7 +81,8 @@ def load_stock_bot(monkeypatch, path=None, *, name="stock_bot_under_test",
     monkeypatch.setattr(logging, "FileHandler", lambda *a, **k: logging.NullHandler())
     from utils import execution_mode
     monkeypatch.setattr(execution_mode, "REQUESTED",
-                        execution_mode.BROKER_PAPER if broker_paper else None)
+                        execution_mode.BROKER_PAPER if broker_paper
+                        else (execution_mode.LIVE if live else None))
 
     spec = importlib.util.spec_from_file_location(
         name, path or os.path.join(DIR, "stock_bot.py"))

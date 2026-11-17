@@ -58,12 +58,15 @@ def test_broker_paper_is_a_mode_of_its_own(bot):
 def test_its_files_cannot_collide_with_the_simulated_bot_for_the_same_ticker(monkeypatch):
     simulated = load_stock_bot(monkeypatch, name="simulated")
     rehearsal = load_stock_bot(monkeypatch, name="rehearsal", broker_paper=True)
-    live = load_stock_bot(monkeypatch, name="live", env={"ALPACA_PAPER": "False"})
+    live = load_stock_bot(monkeypatch, name="live", live=True)
+    assert live.MODE == "LIVE" and live.LIVE and live.SENDS_ORDERS and not live.IS_PAPER
 
     def files(b):
         signal = os.path.join(b.SIGNAL_LOG[1], f"signal_log_{b.SIGNAL_LOG[0].lower()}.csv")
         return {os.path.abspath(p) for p in
                 (b.STATE_PATH, b.TRADES_PATH, b.JOURNAL_PATH, b.log_path, signal)}
+
+    assert rehearsal.LOCK_PATH != live.LOCK_PATH and not hasattr(simulated, "LOCK_PATH")
 
     assert len(files(simulated)) == len(files(rehearsal)) == len(files(live)) == 5
     assert not files(simulated) & files(rehearsal)
@@ -71,24 +74,28 @@ def test_its_files_cannot_collide_with_the_simulated_bot_for_the_same_ticker(mon
     assert not files(rehearsal) & files(live)
 
 
-def test_the_dashboard_and_observer_cannot_mistake_a_rehearsal_for_the_real_run(monkeypatch):
+@pytest.mark.parametrize("mode, folder", [("broker_paper", "broker_paper"), ("live", "live")])
+def test_the_dashboard_and_observer_cannot_mistake_an_order_bot_for_the_real_run(
+        monkeypatch, mode, folder):
     """
     They find files by pattern in the project root. A rehearsal ledger there
     would be summed as live P&L (dashboard.py: completed_trades_*.csv less
-    _dry and _paper) and a rehearsal position would be listed with the
-    registered run's (utils/positions.py: state_*.json).
+    _dry and _paper), and a rehearsal or live position would be listed with
+    the registered run's and added to its unrealised P&L (utils/positions.py:
+    state_*.json; dashboard.py build_pnl_by_market takes every stock position).
     """
     import fnmatch
-    rehearsal = load_stock_bot(monkeypatch, broker_paper=True)
-    for path in (rehearsal.STATE_PATH, rehearsal.TRADES_PATH, rehearsal.JOURNAL_PATH):
-        assert os.path.dirname(path) == os.path.join(DIR, "broker_paper")
+    sender = load_stock_bot(monkeypatch, **{mode: True})
+    for path in (sender.STATE_PATH, sender.TRADES_PATH, sender.JOURNAL_PATH,
+                 sender.LOCK_PATH):
+        assert os.path.dirname(path) == os.path.join(DIR, folder)
     for pattern in ("state_*.json", "completed_trades_*.csv",
                     "completed_trades_stock_*_paper.csv", "logs/signal_log_*.csv"):
-        for path in (rehearsal.STATE_PATH, rehearsal.TRADES_PATH,
-                     os.path.join(rehearsal.SIGNAL_LOG[1], "signal_log_stock-zztest.csv")):
+        for path in (sender.STATE_PATH, sender.TRADES_PATH,
+                     os.path.join(sender.SIGNAL_LOG[1], "signal_log_stock-zztest.csv")):
             assert not fnmatch.fnmatch(os.path.relpath(path, DIR), pattern), (path, pattern)
     with open(os.path.join(DIR, ".gitignore")) as handle:
-        assert "broker_paper/" in handle.read().split()      # the repo is public
+        assert f"{folder}/" in handle.read().split()         # the repo is public
 
 
 def test_broker_paper_with_alpaca_paper_false_refuses_to_start(monkeypatch):
@@ -107,14 +114,13 @@ def test_an_unknown_execution_mode_refuses_to_start(monkeypatch):
 
 
 def test_a_live_bot_reads_its_own_keys_never_the_paper_ones(monkeypatch):
-    env = {"ALPACA_PAPER": "False", "ALPACA_API_KEY": "paper-key",
-           "ALPACA_SECRET_KEY": "paper-secret"}
+    env = {"ALPACA_API_KEY": "paper-key", "ALPACA_SECRET_KEY": "paper-secret"}
     monkeypatch.delenv("ALPACA_LIVE_API_KEY", raising=False)
     monkeypatch.delenv("ALPACA_LIVE_SECRET_KEY", raising=False)
-    live = load_stock_bot(monkeypatch, env=env, test_keys=False)
+    live = load_stock_bot(monkeypatch, live=True, env=env, test_keys=False)
     assert live.MODE == "LIVE" and live.SENDS_ORDERS
     assert (live.API_KEY, live.SECRET_KEY) == ("", "")      # so main() exits
-    live = load_stock_bot(monkeypatch, test_keys=False, env={
+    live = load_stock_bot(monkeypatch, live=True, test_keys=False, env={
         **env, "ALPACA_LIVE_API_KEY": "live-key", "ALPACA_LIVE_SECRET_KEY": "live-secret"})
     assert (live.API_KEY, live.SECRET_KEY) == ("live-key", "live-secret")
     paper = load_stock_bot(monkeypatch, test_keys=False, env={

@@ -1,10 +1,10 @@
 # Stock bots: from simulation to real orders
 
-How a stock bot that sends real orders is started, checked and stopped. Two
-kinds: **broker paper** (real orders to Alpaca's paper account, no money) and
-**live** (the same order path, real money). Broker paper is built and has been
-run against Alpaca. Live has not been run and is not authorised; its section
-says what is still missing.
+How a stock bot that sends real orders is started, checked, closed by hand
+and stopped. Two kinds: **broker paper** (real orders to Alpaca's paper
+account, no money) and **live** (the same order path, real money). Broker
+paper is built and has been run against Alpaca. Live is built, has never been
+run and is not authorised; its section says what is still missing.
 
 `live_trading_setup.md` is the old guide for the retired Coinbase bots.
 
@@ -12,21 +12,29 @@ says what is still missing.
 
 | | Simulated | Broker paper | Live |
 |---|---|---|---|
-| Started with | `stock_bot.py`, `ALPACA_PAPER=True` | `broker_paper_bot.py` | `stock_bot.py`, `ALPACA_PAPER=False` |
+| Started with | `stock_bot.py`, `ALPACA_PAPER=True` | `broker_paper_bot.py` | `live_bot.py --ticker T --usd N --real-money` |
 | Sends orders | No | Yes, to `paper-api.alpaca.markets` | Yes, to `api.alpaca.markets` |
 | Money | None | None | Real |
 | Ledger prices | The signal price | The fill, with the signal price beside it | The fill, with the signal price beside it |
-| State and ledger | `state_stock_<t>_paper.json`, `completed_trades_stock_<t>_paper.csv` | `broker_paper/state_stock_<t>.json`, `broker_paper/completed_trades_stock_<t>.csv` | `state_stock_<t>_live.json`, `completed_trades_stock_<t>_live.csv` |
+| State and ledger | `state_stock_<t>_paper.json`, `completed_trades_stock_<t>_paper.csv` | `broker_paper/state_stock_<t>.json`, `broker_paper/completed_trades_stock_<t>.csv` | `live/state_stock_<t>.json`, `live/completed_trades_stock_<t>.csv` |
 | Log | `logs/stock_<t>.log` | `logs/stock_<t>_brokerpaper.log` | `logs/stock_<t>_live.log` |
-| Order journal | none | `broker_paper/order_journal_stock_<t>.json` | `logs/order_journal_stock_<t>_live.json` |
+| Order journal | none | `broker_paper/order_journal_stock_<t>.json` | `live/order_journal_stock_<t>.json` |
+| On the dashboard | The existing panels | "Order-Sending Bots" panel only | "Order-Sending Bots" panel only |
 | Keys read | `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` | the same (they are paper keys) | `ALPACA_LIVE_API_KEY`, `ALPACA_LIVE_SECRET_KEY` |
 
 The twelve registered bots (stocks v5) are simulated and are not changed by
 any of this. A rehearsal bot for SPY runs beside `spy-bot`; they share no file.
 
-Broker paper cannot be switched on by a setting. No environment variable and
-nothing in `.env` selects it: the mode is chosen by which script the process
-runs. So a bad restart cannot turn a registered bot into an order sender.
+Neither order-sending mode can be switched on by a setting. No environment
+variable and nothing in `.env` selects one: the mode is chosen by which script
+the process runs. So a bad restart cannot turn a registered bot into an order
+sender. Until 2026-11-17 live was the exception (`ALPACA_PAPER=False` on
+`stock_bot.py`); `stock_bot.py` now refuses to start with that.
+
+The files of both order-sending modes are in folders of their own
+(`broker_paper/`, `live/`). Everything else in the project finds bots' files
+by pattern in the project root, so nothing else can pick these up: not the
+simulated P&L, not the v5 registration's figures, not the observer.
 
 The strategy is the same in all three: the same entries, exits and trend gate.
 Only what happens after a decision differs.
@@ -52,6 +60,10 @@ What follows from that:
 - **While an order has no final answer, nothing else is sent.**
 - Before every order the bot checks that Alpaca holds what the state file
   says. If it does not, the bot stops (see below).
+- **One process per bot.** The bot holds a lock on its files for as long as it
+  runs (`broker_paper/running_stock_<t>.lock`). A second copy of the same bot
+  stops at once, and `close_position.py` refuses while the lock is held. The
+  lock goes when the process ends, however it ends.
 
 ## Start a broker-paper rehearsal bot
 
@@ -76,7 +88,8 @@ pm2 save
   refuses to start.
 - `--stop-exit-codes 78` tells pm2 to leave the bot stopped when it stops
   itself over a mismatch, and still restart it after a watchdog exit (70).
-  This flag is in pm2 7.0.3's help; it has not been tried here.
+  Tried on pm2 7.0.3 on 2026-11-17 with throwaway processes: exit 78 stayed
+  stopped with no restarts, exit 70 was restarted.
 - One paper account can carry a rehearsal bot per ticker. Each checks only its
   own ticker's position. Change `SPY` and `spy` in the command for another.
 
@@ -121,9 +134,17 @@ The position on Alpaca's paper dashboard should always equal `shares` in
 `broker_paper/state_stock_spy.json`. The bot checks this itself at every start
 and before every order.
 
-A rehearsal bot does not appear on the project dashboard, in the observer or
-in `restart_bots.py`. That is deliberate, so its trades cannot be counted as
-v5's, and it means the log and the report are the only places to look for now.
+On the dashboard, rehearsal and live bots are in a panel of their own,
+**Order-Sending Bots**, near the top. For each bot it shows whether the
+process is running, stopped, or stopped itself (with the reason from its log),
+how long ago its log was written, the position with the fill beside the signal
+price, the latest fills, realized P&L from fills, and the average cost against
+the signal price beside the 0.10% the backtests assume. Rehearsal and live are
+totalled separately. Nothing in that panel is added to any other figure on the
+page, and a rehearsal or live bot appears nowhere else on it: not in the
+simulated P&L, the registration panel, the positions ledger or the process
+monitor. It is also not in the observer or in `restart_bots.py`. The panel
+needs the dashboard restarted once after this code is merged.
 
 ## Restart it
 
@@ -153,10 +174,44 @@ pm2 delete spy-brokerpaper
 pm2 save
 ```
 
-There is no tool yet for closing a rehearsal position by hand. If a position
-is closed on Alpaca's site, the state file no longer matches and the bot will
-refuse to start until `broker_paper/state_stock_spy.json` is moved aside
-(which loses that open trade from the ledger).
+## Close a position by hand
+
+Stop the bot, then:
+
+```bash
+.venv/bin/python close_position.py SPY
+```
+
+That is a dry run: it prints the state file's position, what Alpaca holds,
+whether the market is open, and what it would send. It sends nothing and
+changes no file. To do it:
+
+```bash
+.venv/bin/python close_position.py SPY --send
+```
+
+- The sell goes through the bot's own order path: journalled before it is
+  sent, waited on, state and ledger written from the fill. The ledger row's
+  exit reason is `Closed by hand`.
+- Afterwards the bot is flat and its files are consistent. Started again
+  (`pm2 start spy-brokerpaper`), it reconciles and trades on its next signal.
+  Leave it stopped if that is not wanted.
+- **The bot must be stopped first.** A running bot keeps its state in memory
+  and would write it back over the tool's. The tool checks the bot's lock and
+  pm2, and refuses while the bot is running.
+- It refuses, and sends nothing, if Alpaca does not hold exactly what the
+  state file says, if there is an open order in the ticker that is not the
+  bot's, if a file cannot be read, or if the market is closed. It does not
+  decide which side is right.
+- If the sell is sent and does not fill, the position stays open and the exit
+  stays owed, as with the bot's own exits: run the tool again, or start the
+  bot and it sells on its first tick in market hours.
+- For a live bot add `--live`. That sends a real-money sell.
+
+Do not close a bot's position on Alpaca's site. The state file then no longer
+matches, the bot refuses to start, and the only way back is to move
+`broker_paper/state_stock_spy.json` aside, which loses the open trade from the
+ledger.
 
 ## When the bot stops itself
 
@@ -171,6 +226,7 @@ these it found. It sends nothing once it has found one.
 | the broker's position could not be read | Alpaca could not be reached at startup, three tries. | Start it again when Alpaca is reachable. |
 | mode is BROKERPAPER but orders would go to ... | The endpoint is not the paper one. | Do not start it. Something is wrong with the install. |
 | state file / order journal cannot be read | A file is damaged. | Do not delete it. Compare with Alpaca first. |
+| ALREADY RUNNING, the lock is held by ... | Another process is working this bot's files: a second copy of the bot, or `close_position.py` mid-run. | Find the other process. Start the bot when it has finished. |
 
 An outage in the middle of the day is not a mismatch. The bot logs that it
 could not check, sends nothing, and tries again on the next tick.
@@ -200,45 +256,83 @@ reinvested as shares.
   national best quote.
 - A sell that needed more than one attempt is measured against the price at
   the first attempt, so the delay counts as cost.
+- A sell marked `closed by hand` is measured against the newest hourly close
+  at the moment the tool was run, not against a signal.
 
-## Live, later
+## Live
 
-Not authorised and not run. The plan on record is stages of $100, $250, $500
-and $1,000 a trade.
+Built, not authorised, never run. No order has ever gone to the live endpoint.
 
-What is already in place: live uses the order path above, unchanged, and the
-tests run it against a fake broker. A live bot refuses to start without its
-own keys and stops if it finds itself pointed at the paper endpoint.
+The terms Lee agreed are in `DECISIONS.md` (2026-11-17, "Live pilot terms"):
+the calm six on the v5 rules, in four stages by what is in the account, the
+account split equally across the six.
 
-What a live start would be, once the list below is dealt with:
+| Stage | In the account | A trade |
+|---|---|---|
+| 1 | $100 | $16 |
+| 2 | $250 | $41 |
+| 3 | $500 | $83 |
+| 4 | $1,000 | $166 |
+
+Funding the account, the first live order and every move to a larger stage
+each need Lee's go at the time. Nothing in the code knows which stage is
+running or moves between them; the trade size is whatever the start command
+says, up to the ceiling below.
+
+What a live start would be, once the list below is dealt with. One process
+per stock, six in all; this is SPY at stage 1:
 
 ```bash
-env -i HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" SHELL="$SHELL" LANG="$LANG" PATH="$PATH" STOCK_TICKER=SPY TRADE_AMOUNT_USD=100 ALPACA_PAPER=False pm2 start stock_bot.py --name spy-live --interpreter .venv/bin/python --stop-exit-codes 78
+env -i HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" SHELL="$SHELL" LANG="$LANG" PATH="$PATH" pm2 start live_bot.py --name spy-live --interpreter .venv/bin/python --stop-exit-codes 78 -- --ticker SPY --usd 16 --real-money
 ```
+
+What `live_bot.py` insists on:
+
+- **Ticker, trade size and `--real-money` on the command line.** None has a
+  default. Leave one out and it refuses to start.
+- **Nothing from the environment.** `STOCK_TICKER`, `TRADE_AMOUNT_USD` and
+  `ALPACA_PAPER`, in the shell or in `.env`, change nothing: the script
+  writes what its command line said over them. pm2 keeps a process's
+  arguments across restarts, so a restart cannot change what the bot trades
+  or how much.
+- **At most $166 a trade**, stage 4's trade size. Checked by `live_bot.py`
+  and again inside `stock_bot.py`. Raising it means editing
+  `LIVE_MAX_TRADE_USD` in `utils/execution_mode.py`. It is a ceiling, not a
+  stage check: `--usd 166` starts on a $100 account if that is what is typed.
+- **Only the calm six**: XLP, JNJ, PG, SPY, XLU, WMT (`LIVE_TICKERS`, same
+  file).
+- **The name `<ticker>-live`.**
+- **Its own keys**, `ALPACA_LIVE_API_KEY` and `ALPACA_LIVE_SECRET_KEY`. It
+  never falls back to the paper keys, and it stops if it finds itself pointed
+  at the paper endpoint.
+
+Everything else is as for a rehearsal bot: the order path, the startup check,
+the lock, exit code 78, `close_position.py SPY --live`, the dashboard panel
+(marked REAL MONEY), `slippage_report.py --live`.
 
 Before stage one:
 
-1. **Live keys.** `ALPACA_LIVE_API_KEY` and `ALPACA_LIVE_SECRET_KEY` in `.env`.
+1. **Lee's decision.** Nothing here starts a live bot.
+2. **Live keys.** `ALPACA_LIVE_API_KEY` and `ALPACA_LIVE_SECRET_KEY` in `.env`.
    They are separate names so the live key is never handed to the simulated
    bots, which all read `ALPACA_API_KEY`.
-2. **An account that holds none of the ticker.** The bot treats any share of
-   its ticker in the account as its own position. Shares held for other
-   reasons will stop it at startup.
-3. **Day-trade and settlement rules.** A buy and a sell on the same day is a
-   day trade. Check Alpaca's current rules for the account type and size
-   before starting: a restricted account can have a sell refused, and the bot
-   would then hold the position and retry every minute until it is accepted.
-   The paper account has $100,000 and never shows this.
-4. **A live entry script.** Broker paper has one that checks the process name
-   and has no defaults. Live still starts from `stock_bot.py`, where a process
-   named `spy-live` gets no name check and a missing `TRADE_AMOUNT_USD` falls
-   back to a default instead of refusing.
-5. **The dashboard.** It will list a live stock bot as a second bot for its
-   ticker and read the simulated bot's signal log for it. Not looked at.
-6. **Enough rehearsal fills** to believe the cost per side, and a decision on
-   what cost would call the pilot off.
-7. **A way to close a position by hand** that keeps the state file right.
+3. **An account that holds none of the six.** Each bot treats any share of its
+   ticker in the account as its own position. Shares held for other reasons
+   will stop it at startup.
+4. **One question for Alpaca.** The small-account rules were looked up on
+   2026-11-17 (`DECISIONS.md`): the pattern-day-trader rule is gone, an
+   account under $2,000 is a margin account at 1x with no shorting, and a buy
+   and a sell on the same day does not restrict it. Not found in so many
+   words: whether good-faith violations can arise on such an account. Ask
+   Alpaca, or read it off the live account's settings, before funding.
+5. **Enough rehearsal fills** to believe the cost per side, and a decision on
+   what cost would call the pilot off. The rehearsal runs at $100 a trade;
+   fills at $16 have not been looked at.
+6. **The terms left open** in the pilot entry: what counts as a bot fault,
+   and whether a stage's 20 trades count by entry or by exit.
 
-Not verified by anything in this repository: a real-money fill, a partial fill
-from Alpaca, an order rejected for day-trading, and pm2's behaviour on exit
-code 78.
+Not verified by anything in this repository: any order on the live endpoint,
+a real-money fill, a partial fill from Alpaca, an order rejected for
+day-trading, and `live_bot.py` or `close_position.py --live` run for real.
+They are tested against a fake broker only. The dashboard panel has been
+drawn by its own script in a test and not looked at in a browser.
