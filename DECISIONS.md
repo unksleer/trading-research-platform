@@ -19,6 +19,75 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-17 — The cooldown after a loss now survives a restart. A defect fix under the v5 seal; no rule changed
+
+**Asked:** by Lee, 2026-11-17 ("let do them all"), after the order-path entry
+below reported the defect and left it alone because v5 is sealed. Lee also
+said to merge the order-path branch, which was done first (fast-forward of
+`lab1-container-ci` to `ef617db`). Code and tests only. None of the twelve
+bots was restarted.
+
+**The defect.** v5's sealed config has `cooldown_hours_after_loss: 6`: no new
+entry for six hours after a trade that closed at a loss. `record_trade` put
+the exit's time and result into the bot's in-memory state
+(`last_exit_time`, `last_exit_pnl`), and `_to_shared_schema`, which decides
+what goes into the state file, did not include them. A process that restarted
+inside the six hours loaded a state file with no trace of the loss and could
+buy again on the next signal. The watchdog, pm2's autorestart and every fleet
+restart are all restarts.
+
+**Why this is a defect fix and not a rule change.** The registration fixes the
+rule; the code failed to carry it out in one circumstance. The backtest that
+v5 is judged against (`backtest_regime_gate.simulate`) has no restarts and
+applies the cooldown every time. The fix moves the live bots toward what was
+sealed. No threshold, entry, exit or gate setting is touched, and the
+registration file is not edited.
+
+**Changed.** `stock_bot.py`: the two keys are written to the state file, in
+every mode, once a trade has closed (`COOLDOWN_STATE_KEYS`). Ten lines. A bot
+that has never exited gains no keys. The cooldown check itself is unchanged.
+
+**Shown.**
+
+- `tests/test_cooldown_survives_restart.py`, 12 tests, each through the real
+  `main()` against real state and ledger files, a restart being a fresh load
+  of `stock_bot.py` on the same files. Run against the code before the fix, 8
+  of the 12 failed. After: a loss then a restart one hour later does not buy;
+  a second restart at five hours still does not; a restart after six hours
+  buys; a win starts no cooldown; with the cooldown off nothing changes.
+- One of them loads the file at `ef617db` from git and shows the old
+  behaviour on the same scenario: it buys an hour after the loss.
+- `tests/test_simulated_path_unchanged.py` compared the simulated bot's state
+  files to the byte with the file at `7d75a32`. It now takes these two keys
+  out of the new bot's state files, compares everything else to the byte as
+  before (ledger, log lines, notifications, signal rows, sleeps), and checks
+  that the two keys hold what the ledger's latest row says. That is the one
+  difference allowed, and it is deliberate.
+- Full suite: 704 passed, 2 skipped.
+
+**Has it cost anything? Checked, not assumed.** The only loss near a restart
+is SLV's stop on 2026-11-16 at 14:30 UTC; the fleet restarted at 15:25 UTC,
+inside its six hours, so SLV's cooldown was forgotten. SLV has made no entry
+since, because the trend gate has had entries off. v5 has no trades yet, so
+no v5 result is affected. Under v4, a restart inside a cooldown may have let
+an early re-entry through; that was not gone back over, since v4 is closed.
+
+**Limits.**
+
+- It takes effect when a bot next restarts and loads this file. Until then
+  the running processes still keep the last exit in memory only.
+- The state files on disk today have no record of the last exit, so the first
+  restart onto this code behaves as before for a loss that happened before
+  it. From the next exit on, the cooldown holds across restarts. A test pins
+  this. Reading the last exit back from the ledger at startup would close
+  that one gap; it was not done, to keep a change under the seal as small as
+  it can be.
+- The cooldown check still passes a buy if the saved time cannot be parsed
+  (`except Exception: pass`). Left as it is: changing what happens there is
+  a behaviour change, and the time is written by the bot itself.
+
+---
+
 ## 2026-11-16 — The stock bots' real-order path: rebuilt, tested, and run against Alpaca's paper account. Nothing is started
 
 **Asked:** by the session planning Lee's staged live pilot: make

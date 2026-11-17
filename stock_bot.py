@@ -214,6 +214,13 @@ BROKER_STATE_KEYS = (
     "applied_orders", "unwritten_trade",
 )
 
+# When the last trade closed and what it made. The cooldown after a loss reads
+# these, so they are written to the state file in every mode: kept in memory
+# only, a restart inside the cooldown forgot the loss and the bot could buy
+# again at once (DECISIONS.md, 2026-11-17). Written only once a trade has
+# closed, so a bot that has never exited gains no keys.
+COOLDOWN_STATE_KEYS = ("last_exit_time", "last_exit_pnl")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # State helpers
@@ -282,7 +289,9 @@ def _to_shared_schema(state: dict) -> dict:
         "entry_time": state.get("entry_time"),
         "highest_price": state.get("highest_price", 0.0),
         "ticker": TICKER,
-        # Nothing is added for a simulated bot: its state file is unchanged.
+        # The last exit, for the cooldown after a loss, in every mode.
+        **{key: state[key] for key in COOLDOWN_STATE_KEYS if key in state},
+        # Nothing else is added for a simulated bot.
         **({key: state[key] for key in BROKER_STATE_KEYS if key in state}
            if SENDS_ORDERS else {}),
     }

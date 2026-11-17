@@ -21,6 +21,13 @@ line, every notification, every signal row and every sleep.
 
 While it runs, the broker is a tripwire: any call to the venue, the trading
 client or the order journal fails the test.
+
+One difference since is deliberate and is the only one allowed. From
+2026-11-17 the state file also carries last_exit_time and last_exit_pnl once a
+trade has closed, so that the cooldown after a loss survives a restart
+(tests/test_cooldown_survives_restart.py). Both tests take those two keys out
+of the new bot's state files, compare the rest to the byte as before, and
+check separately that the two keys hold exactly what the ledger says.
 """
 import json
 import logging
@@ -40,6 +47,7 @@ from stock_bot_harness import (FakeSignalLog, FakeWatchdog, StopLoop,  # noqa: E
                                hourly_bars, load_stock_bot)
 
 BEFORE = "7d75a32"          # last commit before the order path was built
+COOLDOWN_KEYS = ("last_exit_time", "last_exit_pnl")     # the one allowed difference
 
 # Everything the scenario depends on is pinned, so nothing left in the
 # environment by .env or by another test can change the recording.
@@ -162,6 +170,41 @@ def run_scenario(monkeypatch, tmp_path, path=None, name="stock_bot_under_test"):
     return out
 
 
+def without_cooldown_keys(states):
+    """The state files with the two cooldown keys taken out, written the way
+    the bot writes them, so everything else is still compared to the byte."""
+    stripped = []
+    for text in states:
+        if text is None:
+            stripped.append(None)
+            continue
+        state = json.loads(text)
+        for key in COOLDOWN_KEYS:
+            state.pop(key, None)
+        stripped.append(json.dumps(state, indent=4))
+    return stripped
+
+
+def assert_cooldown_keys_match_the_ledger(out):
+    """The two added keys appear only once a trade has closed, and say what
+    the ledger's latest row says."""
+    import csv
+    import io
+    exits = list(csv.DictReader(io.StringIO(out["ledger"])))
+    assert len(exits) == 2
+    # The state file as read at each sleep: after the buy, the hold, the first
+    # exit, the flat tick, the second buy, the second exit, the closed market.
+    expected = [None, None, exits[0], exits[0], exits[0], exits[1], exits[1]]
+    assert len(out["states"]) == len(expected)
+    for text, trade in zip(out["states"], expected):
+        state = json.loads(text)
+        if trade is None:
+            assert not any(key in state for key in COOLDOWN_KEYS)
+        else:
+            assert state["last_exit_time"] == trade["exit_time"]
+            assert state["last_exit_pnl"] == pytest.approx(float(trade["pnl_usd"]), abs=1e-3)
+
+
 def test_the_scenario_really_trades(monkeypatch, tmp_path):
     """Guard on the tests below: a scenario in which nothing happened would
     match anything."""
@@ -177,6 +220,8 @@ def test_simulated_bot_matches_the_recording_from_before_the_order_path(monkeypa
     out = run_scenario(monkeypatch, tmp_path)
     with open(os.path.join(os.path.dirname(__file__), "simulated_golden.json")) as handle:
         golden = json.load(handle)
+    assert_cooldown_keys_match_the_ledger(out)
+    out["states"] = without_cooldown_keys(out["states"])
     for key in golden:
         assert out[key] == golden[key], f"simulated bot changed: {key}"
     assert set(out) == set(golden)
@@ -194,6 +239,9 @@ def test_simulated_bot_matches_the_old_file_itself(monkeypatch, tmp_path):
     before = run_scenario(monkeypatch, tmp_path, path=str(old_dir / "stock_bot.py"),
                           name="stock_bot_before")
     after = run_scenario(monkeypatch, tmp_path, name="stock_bot_after")
+    assert not any(key in text for text in before["states"] for key in COOLDOWN_KEYS)
+    assert_cooldown_keys_match_the_ledger(after)
+    after["states"] = without_cooldown_keys(after["states"])
     for key in before:
         assert after[key] == before[key], f"simulated bot changed: {key}"
 
