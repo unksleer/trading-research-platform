@@ -19,6 +19,109 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-24 — Stock bots: market hours worked out in New York time, not UTC minus four
+
+**Asked:** by Lee. Fix the two places in `stock_bot.py` that took Eastern
+Time to be UTC minus four hours all year, add tests, log it here, commit
+locally. No trading parameter or strategy logic changed, no bot restarted,
+nothing pushed.
+
+**What was wrong.** UTC minus four is right from mid March to early November.
+The clocks went back on 2026-11-01 and New York has been UTC minus five
+since, so both places have been an hour early for three weeks.
+
+1. `minutes_until_open()`, which sets the sleep and the log line while the
+   market is shut. From `logs/stock_spy.log` this morning, times in ET:
+
+   ```
+   2026-11-24 08:29:34,263 [stock/SPY] INFO - Market closed. Next open in ~1m. Sleeping 1m.
+   2026-11-24 08:30:34,422 [stock/SPY] INFO - Market closed. Next open in ~1439m. Sleeping 30m.
+   ```
+
+   The bell is at 09:30. The bot counted down to 08:30, then decided the
+   open had passed and pointed at tomorrow.
+2. The check `is_market_open()` falls back to when Alpaca's clock cannot be
+   reached. In winter it would have called 08:30 to 15:00 ET the trading
+   day: an hour of pre-market in, the last hour out.
+
+**What it cost.** Nothing in the v5 experiment; six half-hours before it.
+The open-or-closed answer normally comes from Alpaca's clock, and the wrong
+arithmetic only ran for the log line, the sleep (capped at 30 minutes either
+way) and the fallback. But the fallback did fire. Searched in
+`logs/stock_*.log` for its warning line since 2026-11-01:
+
+- 98 times in all, on three days: 19 on 2026-11-03, 27 on 2026-11-04, 52 on
+  2026-11-05. First 2026-11-03 11:37:38, last 2026-11-05 10:08:26.
+- 92 of them at hours where UTC minus four and New York give the same
+  answer. 6 between 15:00 and 16:00 ET, where the old code said closed while
+  the market was open: WMT at 15:00:04 and LPL, SPY, PG, JNJ, DIS between
+  15:08:30 and 15:08:39, all on 2026-11-04. None between 08:30 and 09:30,
+  the hour it would have called open.
+- What that looked like, from `logs/stock_wmt.log`:
+
+  ```
+  2026-11-04 15:00:04,382 [stock/WMT] INFO - Market closed. Next open in ~1049m. Sleeping 30m.
+  2026-11-04 15:30:04,589 [stock/WMT] INFO - --- WMT market check ---
+  ```
+
+  So each of the six sat out up to 30 minutes of that day's last hour. Only
+  WMT's log was read through; the other five are taken from the warning's
+  time. Not checked: whether any of them would have bought or sold in that
+  gap.
+- 0 since v5 went live on 2026-11-16. All 98 fall in v4's last week.
+
+**Changed.** Both functions now take the time from
+`zoneinfo.ZoneInfo("America/New_York")` through one small helper,
+`_now_et()`. The weekday test, the 09:30 and 16:00 edges, the "after the
+close means tomorrow" rule and the floor of one minute are as they were. One
+thing added that the task did not name: the minutes are now counted between
+two UTC moments rather than two wall-clock times, because otherwise a weekend
+with a clock change in it comes out an hour wrong (Python subtracts two times
+in the same zone by the wall clock).
+
+**Tests.** New file `tests/test_market_hours_new_york.py`, 27 cases, each
+naming its moment in UTC so the conversion is what is tested: a summer
+weekday (2026-07-15), a winter weekday (2026-11-24), weekends in both, the
+two log lines above (now 60 and 59 minutes), one minute before the real bell
+in winter (1), after the close, the weekend, and both clock-change weekends.
+
+- The new file against the new code: `27 passed`.
+- The same file against `stock_bot.py` as it was at `7bfd50f`:
+  `14 failed, 13 passed`. Every winter case fails there; the summer ones
+  pass, which is why this went unseen until November.
+- Full suite: `895 passed, 2 skipped in 31.60s`.
+
+**Not changed, and still true.**
+
+- The fallback still knows nothing about market holidays or early closes.
+  On Thanksgiving (2026-11-26) with Alpaca's clock unreachable it would say
+  open from 09:30 to 16:00. Left alone because the ask was to keep behaviour
+  otherwise identical.
+- `minutes_until_open()` still points at Saturday 09:30 after Friday's close
+  and at a holiday morning. Harmless: the bot wakes at least every 30
+  minutes and asks Alpaca again.
+
+**Not verified.**
+
+- Nothing running has this. `pm2` at the time of the commit: the twelve
+  simulated bots online with restart count 2, `spy-brokerpaper` online with
+  restart count 1, none touched. They keep the old arithmetic until their
+  next restart, which is Lee's call. Until then the log line will go on
+  reading an hour early each morning.
+- The commit is on `claude/amazing-bell-1b86ef`, a side branch cut from
+  `lab1-container-ci` at `7bfd50f`, not on `lab1-container-ci` itself. The
+  bots load their code from the main folder, which is on
+  `lab1-container-ci`, so a restart alone would not pick this up: the branch
+  has to be merged first.
+- The full suite was run in the side branch's own folder, which has no
+  `.env`. Four tests that read it failed for that reason alone
+  (`4 failed, 891 passed, 2 skipped`); with the main folder's `.env` linked
+  in for the run and the link removed afterwards, the figure above. The file
+  was not opened or printed.
+- The new log line has not been seen in a real log, only in tests.
+
+---
+
 ## 2026-11-17 — Live pieces merged; the rehearsal bot and the dashboard restarted onto them
 
 **Asked:** by Lee. "Yes, merge" for the branch in the two entries below, then

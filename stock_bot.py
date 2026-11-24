@@ -37,6 +37,7 @@ import json
 import time
 import logging
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from dotenv import load_dotenv  # noqa: F401  (kept for compatibility)
@@ -383,6 +384,14 @@ def _data_client():
 # ─────────────────────────────────────────────────────────────────────────────
 # Market hours check (Eastern Time)
 # ─────────────────────────────────────────────────────────────────────────────
+_NEW_YORK = ZoneInfo("America/New_York")
+
+
+def _now_et() -> datetime:
+    """The time in New York now: UTC-4 in summer, UTC-5 in winter."""
+    return datetime.now(_NEW_YORK)
+
+
 def is_market_open() -> bool:
     """Returns True if US stock market is currently open (9:30am–4pm ET, Mon–Fri)."""
     try:
@@ -391,10 +400,9 @@ def is_market_open() -> bool:
         return clock.is_open
     except Exception as e:
         log.warning(f"Could not check market clock via Alpaca: {e}. Falling back to time-based check.")
-        # Fallback: manual time check (UTC offset for ET)
-        now_utc = datetime.now(timezone.utc)
-        # ET is UTC-4 (EDT) or UTC-5 (EST) — use UTC-4 as approximation
-        now_et = now_utc - timedelta(hours=4)
+        # Fallback: weekday and wall clock in New York. Knows nothing about
+        # market holidays or early closes.
+        now_et = _now_et()
         if now_et.weekday() >= 5:  # Saturday=5, Sunday=6
             return False
         market_open  = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
@@ -404,8 +412,7 @@ def is_market_open() -> bool:
 
 def minutes_until_open() -> int:
     """Returns minutes until next market open. Used for smart sleep."""
-    now_utc = datetime.now(timezone.utc)
-    now_et  = now_utc - timedelta(hours=4)
+    now_et = _now_et()
     # If market is open today, next open is tomorrow at 9:30
     if now_et.weekday() < 5:
         if now_et.hour < 9 or (now_et.hour == 9 and now_et.minute < 30):
@@ -417,7 +424,10 @@ def minutes_until_open() -> int:
         # Weekend — find next Monday
         days_ahead = 7 - now_et.weekday()
         open_et = (now_et + timedelta(days=days_ahead)).replace(hour=9, minute=30, second=0, microsecond=0)
-    delta = (open_et - now_et).total_seconds() / 60
+    # Subtract as UTC instants: two datetimes sharing one tzinfo subtract by
+    # wall clock, which is an hour out across a clock change.
+    delta = (open_et.astimezone(timezone.utc)
+             - now_et.astimezone(timezone.utc)).total_seconds() / 60
     return max(1, int(delta))
 
 
