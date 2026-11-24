@@ -19,6 +19,38 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-24 — New York time fix merged; no bot restarted
+
+**Asked:** by Lee. "Yes, merge" for the branch in the entry below. Nothing
+restarted, nothing pushed.
+
+**Before the merge.** The main folder was clean and on `lab1-container-ci`
+at `7bfd50f`. `pm2` shows `watch False` for every bot, so a changed file on
+disk does not restart anything.
+
+**Merged, 09:20 ET, ten minutes before the bell.** `lab1-container-ci`
+fast-forwarded from `7bfd50f` to `1c0b25b`: 3 files, 278 insertions, 7
+deletions. It is now one commit ahead of `origin/lab1-container-ci`, plus
+this entry.
+
+**After.** Same process ids and restart counts as before the merge: the
+twelve simulated bots online at restart count 2, `spy-brokerpaper` at 1,
+`dashboard` at 3.
+
+**Not verified.**
+
+- The suite was not run again in the main folder. The merge was a
+  fast-forward, so the files there are the ones the `895 passed, 2 skipped`
+  below was measured on.
+- No running bot has the fix. It is on disk and loads at each bot's next
+  restart, which is Lee's call. Until then the morning log line stays an
+  hour early, and the fallback, if Alpaca's clock cannot be reached, still
+  uses UTC minus four.
+- The entry below says the commit is not on `lab1-container-ci`. That was
+  true when it was written and stopped being true with this merge.
+
+---
+
 ## 2026-11-24 — Stock bots: market hours worked out in New York time, not UTC minus four
 
 **Asked:** by Lee. Fix the two places in `stock_bot.py` that took Eastern
