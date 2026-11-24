@@ -19,6 +19,75 @@ documents (README, trading_profiles) are kept current instead.
 
 ---
 
+## 2026-11-24 — Stock bots restarted onto the New York time fix, before the bell
+
+**Asked:** by Lee. "to get the time change fix, lets restart the bots". Taken
+to mean every bot that runs `stock_bot.py`: the twelve simulated bots and the
+rehearsal bot `spy-brokerpaper`. The dashboard was not restarted; it does not
+use the two functions. No setting changed, nothing pushed.
+
+**Before.** 09:22 ET, market shut, every bot asleep until the bell.
+`restart_bots.py --check`: `All bots match their names.` All twelve state
+files read `position=NONE`. The rehearsal bot had no state file: it has
+never traded. No bot could be inside its six-hour cooldown after a loss: the
+last session closed more than 17 hours earlier.
+
+**Restarted.**
+
+- The twelve, 09:22:49 to 09:22:56 ET, with `restart_bots.py --stocks` under
+  a clean environment (HOME, USER, LANG and PATH only). All twelve ticked,
+  then `Verified: every bot matches its name.` Restart count 2 to 3.
+- `spy-brokerpaper`, 09:23:25 ET, with a plain `pm2 restart`, no
+  `--update-env`, same clean environment. Restart count 1 to 2,
+  `--stop-exit-codes 78` kept. Log: `Reconciled with the broker at
+  https://paper-api.alpaca.markets: 0 SPY held, state file agrees, no open
+  orders.`
+
+**The fix, seen in real logs.** The old code at 09:00 and the new from
+09:22, from `logs/stock_spy.log`:
+
+```
+2026-11-24 09:00:34,636 [stock/SPY] INFO - Market closed. Next open in ~1409m. Sleeping 30m.
+2026-11-24 09:22:54,719 [stock/SPY] INFO - Market closed. Next open in ~7m. Sleeping 7m.
+2026-11-24 09:29:54,929 [stock/SPY] INFO - Market closed. Next open in ~1m. Sleeping 1m.
+2026-11-24 09:30:55,094 [stock/SPY] INFO - --- SPY market check ---
+```
+
+All twelve logged `~7m` on starting and the rehearsal bot `~6m`.
+
+**After the bell, checked from the logs, not from pm2.** All thirteen ran a
+market check between 09:30:27 and 09:30:56. Errors, tracebacks and watchdog
+exits since the restart: 0 in all thirteen. Each of the twelve logged its
+`(PAPER)` banner, its trend-gate line and its watchdog line. The twelve
+state files are the same to the byte as before the restart. The gate, same
+in all thirteen: `SPY closed 722.56 on 2026-11-23, -4.84% below its
+50-session average 759.34: entries off`.
+
+**What else this restart loaded.** The twelve had been running the code from
+their restart on 2026-11-16 (`feff8e2`). So they picked up everything since,
+not the time fix alone: the cooldown that survives a restart, the
+order-sending path and its modes, the pause switch. In `stock_bot.py` and
+`utils/` that is 6 files, 1,412 lines added and 157 removed, of which the
+time fix is 24. Earlier entries said this would load at the next restart.
+`tests/test_simulated_path_unchanged.py` is what says a simulated bot behaves
+as before apart from the two cooldown keys; it passed in the full suite
+(`895 passed, 2 skipped`). The rehearsal bot was already on `7bfd50f`, so it
+gained the time fix only.
+
+**Not verified.**
+
+- One market check each is all that has been seen. Nothing has bought or
+  sold on this code in a simulated bot, and with entries off nothing will
+  buy until the gate turns.
+- The fallback (Alpaca's clock unreachable) has not fired since the restart,
+  so the corrected hours there are shown by tests only.
+- The simulated bots still carry `CLAUDE_*` variables an earlier session
+  left in them: 21 names in `spy-bot`'s environment, 0 in
+  `spy-brokerpaper`'s. Only `spy-bot` was counted. A clean environment adds
+  none but does not remove them. Names counted, values not read.
+
+---
+
 ## 2026-11-24 — New York time fix merged; no bot restarted
 
 **Asked:** by Lee. "Yes, merge" for the branch in the entry below. Nothing
